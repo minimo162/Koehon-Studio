@@ -45,11 +45,12 @@
                        │ HTTP localhost
                        ▼
 ┌──────────────────────────────────────────────┐
-│ TTS Backend Sidecar                           │
-│ - FastAPI または軽量HTTPサーバー              │
+│ Native TTS Sidecar                            │
+│ - ONNX Runtime                                │
 │ - MOSS-TTS-Nano ONNX 推論                     │
 │ - テキストチャンク → WAV生成                  │
 │ - health check                                │
+│ - ユーザー環境に追加ランタイムを要求しない     │
 └──────────────────────────────────────────────┘
 ```
 
@@ -72,14 +73,15 @@
 
 ### 3.3 TTSバックエンド
 
-- Python sidecar
-- FastAPI
-- Uvicorn
+- ネイティブ sidecar
+  - 第一候補: Rust
+  - 代替候補: C++ または Go
 - ONNX Runtime
 - MOSS-TTS-Nano ONNX
-- 音声処理用ライブラリ
-  - MVP: WAV 処理中心
-  - 将来: ffmpeg 連携で MP3 / M4B
+- 軽量HTTPサーバーまたはTauri command IPC
+- WAV 書き出し処理
+- ユーザー環境に Python、pip、venv、Node.js、Rust などを要求しない standalone 配布
+- 将来: ffmpeg またはネイティブエンコーダ連携で MP3 / M4B
 
 ### 3.4 データ形式
 
@@ -136,16 +138,30 @@ src-tauri/
       project_service.rs
       audio_merge_service.rs
   binaries/
-    tts-backend-x86_64-pc-windows-msvc.exe
+    tts-sidecar-x86_64-pc-windows-msvc.exe
 
-backend/
-  tts_server.py
-  tts_engine/
-    moss_onnx_engine.py
-    base.py
-  audio/
-    wav_utils.py
-  config.py
+native-tts/
+  Cargo.toml
+  src/
+    main.rs
+    api/
+      health.rs
+      synthesize.rs
+    engine/
+      mod.rs
+      moss_onnx.rs
+      tokenizer.rs
+    audio/
+      wav_writer.rs
+      silence.rs
+    model/
+      model_repository.rs
+    config.rs
+  vendor/
+    onnxruntime/
+      bin/
+      include/
+      lib/
 ```
 
 ## 5. 画面設計
@@ -429,7 +445,7 @@ Markdown記法の簡易除去
 ### 8.2 front matter 抽出
 
 - `---` で囲まれた先頭ブロックを YAML front matter とみなす。
-- MVPでは既知キーのみ抽出する。
+- 初期実装では既知キーのみ抽出する。
 - 不明キーは保持してもよい。
 - YAML解析に失敗した場合、front matter を本文として扱わず、警告を表示する。
 
@@ -508,19 +524,36 @@ Markdown記法の簡易除去
 ]
 ```
 
-## 10. TTS Backend API設計
+## 10. TTS sidecar API設計
 
 ### 10.1 起動方式
 
 Tauri shell plugin で sidecar を起動する。
 
 ```text
-tts-backend-x86_64-pc-windows-msvc.exe
+tts-sidecar-x86_64-pc-windows-msvc.exe
   --host 127.0.0.1
   --port 18083
   --model-dir {appData}/models
   --output-dir {project}/audio/chunks
   --cpu-threads 4
+```
+
+sidecar は ONNX Runtime をリンクまたは同梱した standalone 実行形式とし、ユーザー環境の Python インストール有無に依存しない。
+
+配布時の想定構成:
+
+```text
+Koehon Studio.exe
+resources/
+  tts-sidecar/
+    tts-sidecar-x86_64-pc-windows-msvc.exe
+    onnxruntime.dll
+    models/
+      moss-tts-nano/
+        model.onnx
+        tokenizer.json
+        config.json
 ```
 
 ### 10.2 Health API
@@ -573,7 +606,7 @@ POST /synthesize
 
 ### 10.4 Cancel API
 
-MVPでは生成中の1リクエストを強制中断できなくてもよい。キュー停止はフロントエンド側で行い、現在の生成完了後に停止する。
+初期実装では生成中の1リクエストを強制中断できなくてもよい。キュー停止はフロントエンド側で行い、現在の生成完了後に停止する。
 
 将来的には以下を追加する。
 
@@ -630,7 +663,7 @@ pending → skipped
 
 ### 12.3 並列化
 
-MVPでは逐次生成とする。
+初期実装では逐次生成とする。
 
 理由:
 
@@ -642,7 +675,7 @@ MVPでは逐次生成とする。
 
 ## 13. 音声結合設計
 
-### 13.1 MVP
+### 13.1 初期実装
 
 - WAVのみを対象とする。
 - すべて同一サンプルレート・チャンネル数であることを前提に結合する。
@@ -697,9 +730,10 @@ Markdown原稿を作るためのプロンプト文字列。
 1. appDataDir を取得する。
 2. モデルディレクトリを確認する。
 3. プロジェクト出力ディレクトリを作成する。
-4. sidecar を起動する。
+4. 同梱されたネイティブ sidecar を起動する。
 5. `/health` をポーリングする。
-6. 成功したらアプリ状態を `backendReady` にする。
+6. 成功したらアプリ状態を `sidecarReady` にする。
+7. ONNX Runtime、モデル、話者一覧、サンプルレートを health 結果として保持する。
 
 ### 15.2 終了時
 
@@ -712,12 +746,14 @@ Markdown原稿を作るためのプロンプト文字列。
 - health check に失敗したら再起動ボタンを表示する。
 - 連続再起動は回数制限を設ける。
 - stderr をログへ保存する。
+- ONNX Runtime DLL不足、モデル未配置、モデル形式不一致、推論初期化失敗を区別して表示する。
+- ユーザー環境に Python がないことはエラー条件にしない。
 
 ## 16. セキュリティ設計
 
 ### 16.1 ローカルAPI制限
 
-- backend は `127.0.0.1` のみに bind する。
+- sidecar は `127.0.0.1` のみに bind する。
 - 将来的には起動時にランダムトークンを生成し、全APIに Authorization を要求する。
 
 ### 16.2 ファイルパス制限
@@ -739,7 +775,7 @@ Markdown原稿を作るためのプロンプト文字列。
 |---|---|---|
 | FileError | 読み込み失敗、保存失敗 | ファイル名と原因 |
 | ParseError | front matter不正、タグ不正 | 行番号と原因 |
-| BackendError | sidecar起動失敗、health失敗 | 再起動ボタン |
+| SidecarError | sidecar起動失敗、health失敗、ONNX Runtime初期化失敗 | 再起動ボタン、モデル/DLL診断 |
 | TtsError | 合成失敗 | チャンク番号と本文冒頭 |
 | ExportError | 結合失敗、書き出し失敗 | 出力先と原因 |
 | ConfigError | 設定値不正 | 項目名と許容範囲 |
@@ -753,7 +789,7 @@ Markdown原稿を作るためのプロンプト文字列。
 - 対象チャンクID
 - エラー種別
 - メッセージ
-- stack trace または backend stderr
+- stack trace または sidecar stderr
 
 ## 18. テスト設計
 
@@ -770,7 +806,7 @@ Markdown原稿を作るためのプロンプト文字列。
 
 - 原稿読み込みから章一覧表示まで
 - チャンク生成からキュー登録まで
-- TTS backend health check
+- TTS sidecar health check
 - 1チャンク音声生成
 - pause挿入ありのWAV結合
 
@@ -791,22 +827,25 @@ Markdown原稿を作るためのプロンプト文字列。
 - 長文原稿の生成安定性確認。
 - 日本語テキストの読み上げ品質確認。
 
-## 19. MVP実装順序
+## 19. 実装順序
 
 1. Tauri + Svelte プロジェクト作成。
 2. 原稿ファイル読み込み。
 3. Markdown parser / chapter parser 実装。
 4. 原稿プレビュー画面実装。
 5. チャンク分割実装。
-6. Python TTS backend の `/health` と `/synthesize` 実装。
-7. sidecar 起動処理実装。
-8. 生成キュー実装。
-9. WAV保存・プレビュー実装。
-10. WAV結合実装。
-11. プロジェクト保存実装。
-12. プロンプト生成画面実装。
-13. 設定画面実装。
-14. Windows向けビルド。
+6. ネイティブ TTS sidecar プロジェクト作成。
+7. ONNX Runtime のロードと診断処理実装。
+8. MOSS-TTS-Nano ONNX モデル読み込み実装。
+9. sidecar の `/health` と `/synthesize` 実装。
+10. Tauri からの sidecar 起動・停止処理実装。
+11. 生成キュー実装。
+12. WAV保存・プレビュー実装。
+13. WAV結合実装。
+14. プロジェクト保存実装。
+15. プロンプト生成画面実装。
+16. 設定画面実装。
+17. Windows向けビルドと sidecar 同梱検証。
 
 ## 20. 将来の拡張設計
 
@@ -826,7 +865,6 @@ export interface TtsEngineAdapter {
 
 - MOSS-TTS-Nano ONNX
 - 別のローカルTTS
-- 商用クラウドTTS
 - Windows標準音声
 
 ### 20.2 原稿入力抽象化
