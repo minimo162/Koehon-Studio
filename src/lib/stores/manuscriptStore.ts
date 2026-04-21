@@ -7,6 +7,8 @@ export type ManuscriptState = {
   raw: string;
   fileName?: string;
   filePath?: string;
+  projectDir?: string;
+  projectFilePath?: string;
   parsed?: ParsedManuscript;
   dirty: boolean;
   error?: string;
@@ -71,6 +73,42 @@ export function markSaved(): void {
 
 export function markSavedAs(fileName: string, filePath?: string): void {
   manuscriptStore.update((state) => ({ ...state, fileName, filePath, dirty: false }));
+}
+
+export function markProjectSaved(projectDir: string, projectFilePath: string, fileName = "manuscript.md", filePath?: string): void {
+  manuscriptStore.update((state) => ({ ...state, projectDir, projectFilePath, fileName, filePath, dirty: false }));
+}
+
+export function restoreManuscriptProject(raw: string, options: {
+  fileName?: string;
+  filePath?: string;
+  projectDir?: string;
+  projectFilePath?: string;
+  chapterInclusion?: Record<string, boolean>;
+} = {}): void {
+  try {
+    manuscriptStore.set({
+      raw,
+      fileName: options.fileName,
+      filePath: options.filePath,
+      projectDir: options.projectDir,
+      projectFilePath: options.projectFilePath,
+      parsed: parse(raw),
+      dirty: false,
+      chapterInclusion: options.chapterInclusion ?? {}
+    });
+  } catch (error) {
+    manuscriptStore.set({
+      raw,
+      fileName: options.fileName,
+      filePath: options.filePath,
+      projectDir: options.projectDir,
+      projectFilePath: options.projectFilePath,
+      dirty: false,
+      error: String(error),
+      chapterInclusion: options.chapterInclusion ?? {}
+    });
+  }
 }
 
 export function setChapterNarration(chapterId: string, includeInNarration: boolean): void {

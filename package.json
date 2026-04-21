@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:sidecar": "cargo build --manifest-path native-tts/Cargo.toml",
+    "build:sidecar:release": "cargo build --release --manifest-path native-tts/Cargo.toml",
+    "build:app": "vite build",
     "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
+    "build": "pnpm build:sidecar:release && pnpm build:app",
     "preview": "vite preview --host 127.0.0.1",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",

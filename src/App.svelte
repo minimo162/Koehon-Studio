@@ -1,12 +1,17 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { get } from "svelte/store";
+  import { buildChapterMergeInputs, deleteAudioFile, getChapterOutputPath, getExportOutputPath, mergeWavFiles, openAudioFile, revealAudioFile, selectExportPath, toAudioSrc, type AudioFileRecord } from "./lib/api/audioFiles";
   import { isTauriRuntime, openManuscriptPath, openManuscriptWithDialog, saveManuscriptFile } from "./lib/api/fileAccess";
+  import { ensureSidecar, restartSidecar, stopSidecar, type SidecarStatus } from "./lib/api/sidecarManager";
+  import { openProjectPath, openProjectWithDialog, saveProjectWithDialog } from "./lib/project/projectPersistence";
   import { buildPrompt, sourceTypeInstructions, type PromptOptions } from "./lib/prompt/promptTemplates";
   import { appSettingsStore } from "./lib/stores/appSettings";
-  import { generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, generateAll, generateChapter, stopGeneration } from "./lib/stores/generationQueue";
-  import { manuscriptStore, markSaved, markSavedAs, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
+  import { generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
+  import { manuscriptStore, markProjectSaved, markSaved, markSavedAs, restoreManuscriptProject, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
   import { projectStore } from "./lib/stores/projectStore";
   import { recentFilesStore, rememberRecentFile } from "./lib/stores/recentFiles";
+  import { recentProjectsStore, rememberRecentProject } from "./lib/stores/recentProjects";
 
   type ViewId = "home" | "manuscript" | "generation" | "audio" | "prompt" | "settings" | "logs";
 
@@ -21,13 +26,41 @@
   };
   let copied = false;
   let fileError = "";
+  let audioError = "";
+  let selectedAudioPath = "";
+  let chapterAudioPaths: Record<string, string> = {};
+  let exportAudioPath = "";
   let nativeFileApi = isTauriRuntime();
+  let sidecarStatus: SidecarStatus = "idle";
 
   $: chapters = $projectStore.chapters;
   $: if (!selectedChapterId && chapters.length > 0) selectedChapterId = chapters[0].id;
   $: selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId) ?? chapters[0];
   $: promptText = buildPrompt(promptOptions);
   $: progress = $generationStateStore.totalChunks > 0 ? Math.round(($generationStateStore.completedChunks / $generationStateStore.totalChunks) * 100) : 0;
+  $: currentChunk = $generationStateStore.currentChunkId ? $chunkStateStore[$generationStateStore.currentChunkId] : undefined;
+  $: failedChunks = Object.values($chunkStateStore).filter((chunk) => chunk.status === "failed");
+  $: chunkAudioRecords = Object.values($chunkStateStore)
+    .filter((chunk) => Boolean(chunk.audioPath))
+    .map((chunk): AudioFileRecord => ({
+      id: chunk.id,
+      label: chunk.id,
+      kind: "chunk",
+      path: chunk.audioPath ?? "",
+      chapterId: chunk.chapterId
+    }));
+  $: chapterAudioRecords = Object.entries(chapterAudioPaths).map(([chapterId, path]): AudioFileRecord => ({
+    id: chapterId,
+    label: chapters.find((chapter) => chapter.id === chapterId)?.title ?? chapterId,
+    kind: "chapter",
+    path,
+    chapterId
+  }));
+  $: audioRecords = [
+    ...chapterAudioRecords,
+    ...(exportAudioPath ? [{ id: "export", label: "全体WAV", kind: "export" as const, path: exportAudioPath }] : []),
+    ...chunkAudioRecords
+  ];
 
   const navItems: Array<{ id: ViewId; label: string; icon: string }> = [
     { id: "home", label: "ホーム", icon: "⌂" },
@@ -38,6 +71,68 @@
     { id: "settings", label: "設定", icon: "⚙" },
     { id: "logs", label: "ログ", icon: "≡" }
   ];
+
+  onMount(() => {
+    if (!nativeFileApi) return;
+    ensureSidecar({
+      onStatus: (status) => (sidecarStatus = status),
+      onLog: logGeneration
+    }).catch((error) => {
+      sidecarStatus = "failed";
+      logGeneration("error", error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      stopSidecar({ onLog: logGeneration }).catch((error) => {
+        logGeneration("error", error instanceof Error ? error.message : String(error));
+      });
+    };
+  });
+
+  async function startNativeSidecar(): Promise<boolean> {
+    try {
+      await ensureSidecar({
+        onStatus: (status) => (sidecarStatus = status),
+        onLog: logGeneration
+      });
+      return true;
+    } catch (error) {
+      sidecarStatus = "failed";
+      logGeneration("error", error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  async function restartNativeSidecar(): Promise<void> {
+    try {
+      await restartSidecar({
+        onStatus: (status) => (sidecarStatus = status),
+        onLog: logGeneration
+      });
+    } catch (error) {
+      sidecarStatus = "failed";
+      logGeneration("error", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function generateAllWithSidecar(): Promise<void> {
+    if (!(await startNativeSidecar())) return;
+    await generateAll();
+  }
+
+  async function generateChapterWithSidecar(chapterId: string): Promise<void> {
+    if (!(await startNativeSidecar())) return;
+    await generateChapter(chapterId);
+  }
+
+  async function regenerateFailedWithSidecar(): Promise<void> {
+    if (!(await startNativeSidecar())) return;
+    await regenerateFailedChunks();
+  }
+
+  async function regenerateChunkWithSidecar(chunkId: string): Promise<void> {
+    if (!(await startNativeSidecar())) return;
+    await regenerateChunk(chunkId);
+  }
 
   async function readFile(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -98,6 +193,73 @@
     markSaved();
   }
 
+  async function saveProject(): Promise<void> {
+    fileError = "";
+    if (!nativeFileApi) {
+      fileError = "プロジェクト保存は Tauri アプリ上で利用できます。";
+      return;
+    }
+    try {
+      const manuscript = get(manuscriptStore);
+      const saved = await saveProjectWithDialog(
+        { ...get(projectStore), generation: get(generationStateStore) },
+        manuscript.raw,
+        manuscript.chapterInclusion,
+        get(chunkStateStore),
+        manuscript.projectFilePath
+      );
+      if (!saved) return;
+      markProjectSaved(saved.projectDir, saved.projectFilePath, "manuscript.md", saved.manuscriptPath);
+      rememberRecentProject(saved.projectFilePath, saved.snapshot.title);
+      activeView = "manuscript";
+    } catch (error) {
+      fileError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function openProject(): Promise<void> {
+    fileError = "";
+    if (!nativeFileApi) {
+      fileError = "プロジェクト読み込みは Tauri アプリ上で利用できます。";
+      return;
+    }
+    try {
+      const loaded = await openProjectWithDialog();
+      if (!loaded) return;
+      restoreLoadedProject(loaded);
+    } catch (error) {
+      fileError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function openRecentProject(path: string): Promise<void> {
+    fileError = "";
+    try {
+      const loaded = await openProjectPath(path);
+      restoreLoadedProject(loaded);
+    } catch (error) {
+      fileError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  function restoreLoadedProject(loaded: Awaited<ReturnType<typeof openProjectPath>>): void {
+    appSettingsStore.set(loaded.snapshot.settings);
+    restoreManuscriptProject(loaded.rawManuscript, {
+      fileName: loaded.snapshot.manuscriptFile,
+      filePath: loaded.manuscriptPath,
+      projectDir: loaded.projectDir,
+      projectFilePath: loaded.projectFilePath,
+      chapterInclusion: loaded.snapshot.chapterInclusion
+    });
+    resetGenerationState(loaded.snapshot.generation);
+    restoreChunkStates(loaded.snapshot.chunks, loaded.missingAudioPaths);
+    rememberRecentProject(loaded.projectFilePath, loaded.snapshot.title);
+    if (loaded.missingAudioPaths.length > 0) {
+      logGeneration("error", `生成済み音声として記録された ${loaded.missingAudioPaths.length} 件のファイルが見つかりません。`);
+    }
+    activeView = "manuscript";
+  }
+
   function loadDraft(): void {
     const draft = localStorage.getItem("koehon-studio-draft");
     if (draft) {
@@ -119,6 +281,86 @@
 
   function toggleChapterNarration(chapterId: string, includeInNarration: boolean): void {
     setChapterNarration(chapterId, includeInNarration);
+  }
+
+  async function mergeSelectedChapterAudio(): Promise<void> {
+    if (!selectedChapter) return;
+    await mergeChapterAudio(selectedChapter.id);
+  }
+
+  async function mergeChapterAudio(chapterId: string): Promise<string | undefined> {
+    audioError = "";
+    const chapter = get(projectStore).chapters.find((item) => item.id === chapterId);
+    if (!chapter) return undefined;
+    try {
+      const project = get(projectStore);
+      const outputPath = getChapterOutputPath(chapter, project.projectDir);
+      const result = await mergeWavFiles(buildChapterMergeInputs(chapter, get(chunkStateStore)), outputPath);
+      chapterAudioPaths = { ...chapterAudioPaths, [chapter.id]: result.outputPath };
+      selectedAudioPath = result.outputPath;
+      logGeneration("info", `${chapter.title} の章WAVを作成しました。`);
+      return result.outputPath;
+    } catch (error) {
+      audioError = error instanceof Error ? error.message : String(error);
+      logGeneration("error", audioError);
+      return undefined;
+    }
+  }
+
+  async function exportWholeWav(): Promise<void> {
+    audioError = "";
+    try {
+      const project = get(projectStore);
+      const targetChapters = project.chapters.filter((chapter) => chapter.includeInNarration);
+      const chapterPaths: string[] = [];
+      for (const chapter of targetChapters) {
+        const path = chapterAudioPaths[chapter.id] ?? (await mergeChapterAudio(chapter.id));
+        if (!path) return;
+        chapterPaths.push(path);
+      }
+      const defaultPath = getExportOutputPath(project.title, project.projectDir);
+      const outputPath = await selectExportPath(defaultPath);
+      if (!outputPath) return;
+      const result = await mergeWavFiles(chapterPaths.map((path) => ({ type: "file", path })), outputPath);
+      exportAudioPath = result.outputPath;
+      selectedAudioPath = result.outputPath;
+      logGeneration("info", "全体WAVを書き出しました。");
+    } catch (error) {
+      audioError = error instanceof Error ? error.message : String(error);
+      logGeneration("error", audioError);
+    }
+  }
+
+  async function revealSelectedAudio(path: string): Promise<void> {
+    try {
+      await revealAudioFile(path);
+    } catch (error) {
+      audioError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function openSelectedAudio(path: string): Promise<void> {
+    try {
+      await openAudioFile(path);
+    } catch (error) {
+      audioError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function deleteGeneratedAudio(record: AudioFileRecord): Promise<void> {
+    try {
+      await deleteAudioFile(record.path);
+      if (record.kind === "chunk") clearChunkAudio(record.id);
+      if (record.kind === "chapter" && record.chapterId) {
+        const remaining = { ...chapterAudioPaths };
+        delete remaining[record.chapterId];
+        chapterAudioPaths = remaining;
+      }
+      if (record.kind === "export") exportAudioPath = "";
+      if (selectedAudioPath === record.path) selectedAudioPath = "";
+    } catch (error) {
+      audioError = error instanceof Error ? error.message : String(error);
+    }
   }
 </script>
 
@@ -159,6 +401,8 @@
       <div class="actions">
         {#if nativeFileApi}
           <button class="primary" on:click={openNativeManuscript}>原稿を開く</button>
+          <button on:click={openProject}>プロジェクトを開く</button>
+          <button on:click={saveProject}>プロジェクト保存</button>
         {:else}
           <label class="file-button">
             原稿を開く
@@ -184,6 +428,10 @@
               </label>
             {/if}
             <button on:click={loadDraft}>保存済み下書きを開く</button>
+            {#if nativeFileApi}
+              <button on:click={openProject}>プロジェクトを開く</button>
+              <button on:click={saveProject}>プロジェクト保存</button>
+            {/if}
             <button on:click={() => (activeView = "prompt")}>プロンプトを作る</button>
           </div>
         </div>
@@ -196,6 +444,14 @@
               <strong>最近使った原稿</strong>
               {#each $recentFilesStore as file}
                 <button disabled={!nativeFileApi} on:click={() => openRecent(file.path)} title={file.path}>{file.name}</button>
+              {/each}
+            </div>
+          {/if}
+          {#if $recentProjectsStore.length > 0}
+            <div class="recent-files">
+              <strong>最近使ったプロジェクト</strong>
+              {#each $recentProjectsStore as project}
+                <button disabled={!nativeFileApi} on:click={() => openRecentProject(project.path)} title={project.path}>{project.name}</button>
               {/each}
             </div>
           {/if}
@@ -217,6 +473,7 @@
             <span>{$manuscriptStore.fileName ?? "サンプル原稿"}</span>
             {#if $manuscriptStore.dirty}<em>未保存</em>{/if}
             <button on:click={saveDraft}>下書き保存</button>
+            {#if nativeFileApi}<button on:click={saveProject}>プロジェクト保存</button>{/if}
           </div>
           <textarea value={$manuscriptStore.raw} on:input={(event) => updateManuscript((event.currentTarget as HTMLTextAreaElement).value)} spellcheck="false"></textarea>
         </div>
@@ -258,13 +515,34 @@
           </div>
           <div class="actions">
             <button on:click={checkSidecar}>Health確認</button>
-            <button class="primary" disabled={$generationStateStore.status === "running"} on:click={generateAll}>全体を生成</button>
-            <button disabled={!selectedChapter || $generationStateStore.status === "running"} on:click={() => selectedChapter && generateChapter(selectedChapter.id)}>選択章を生成</button>
+            <button on:click={startNativeSidecar}>Sidecar起動</button>
+            <button on:click={restartNativeSidecar}>Sidecar再起動</button>
+            <button class="primary" disabled={$generationStateStore.status === "running"} on:click={generateAllWithSidecar}>全体を生成</button>
+            <button disabled={!selectedChapter || $generationStateStore.status === "running"} on:click={() => selectedChapter && generateChapterWithSidecar(selectedChapter.id)}>選択章を生成</button>
+            <button disabled={failedChunks.length === 0 || $generationStateStore.status === "running"} on:click={regenerateFailedWithSidecar}>失敗のみ再生成</button>
             <button disabled={$generationStateStore.status !== "running"} on:click={stopGeneration}>停止</button>
           </div>
         </div>
         <div class="progress"><span style={`width: ${progress}%`}></span></div>
-        <p>{progress}% / {$generationStateStore.status} / 失敗 {$generationStateStore.failedChunks}</p>
+        <p>{progress}% / {$generationStateStore.status} / sidecar {sidecarStatus} / 完了 {$generationStateStore.completedChunks} / 失敗 {$generationStateStore.failedChunks}</p>
+        {#if currentChunk}
+          <div class="current-chunk">
+            <strong>生成中: {currentChunk.id}</strong>
+            <span>{currentChunk.text?.slice(0, 140) ?? `無音 ${currentChunk.pauseMs}ms`}</span>
+          </div>
+        {/if}
+        <div class="chapter-progress">
+          {#each chapters as chapter}
+            {@const chapterChunks = chapter.chunks.map((chunk) => $chunkStateStore[chunk.id] ?? chunk)}
+            {@const doneCount = chapterChunks.filter((chunk) => chunk.status === "done" || chunk.status === "skipped").length}
+            {@const failedCount = chapterChunks.filter((chunk) => chunk.status === "failed").length}
+            <article class:muted={!chapter.includeInNarration}>
+              <strong>{chapter.title}</strong>
+              <span>{doneCount}/{chapterChunks.length} 完了 / 失敗 {failedCount}</span>
+              <button disabled={$generationStateStore.status === "running" || !chapter.includeInNarration} on:click={() => generateChapterWithSidecar(chapter.id)}>章を生成</button>
+            </article>
+          {/each}
+        </div>
         <div class="queue-grid">
           {#each Object.values($chunkStateStore) as chunk}
             <article class={chunk.status}>
@@ -272,19 +550,48 @@
               <span>{chunk.status}</span>
               <p>{chunk.type === "pause" ? `無音 ${chunk.pauseMs}ms` : chunk.text?.slice(0, 80)}</p>
               {#if chunk.error}<em>{chunk.error}</em>{/if}
+              {#if chunk.status === "failed"}
+                <button disabled={$generationStateStore.status === "running"} on:click={() => regenerateChunkWithSidecar(chunk.id)}>再生成</button>
+              {/if}
             </article>
           {/each}
         </div>
       </section>
     {:else if activeView === "audio"}
       <section class="panel">
-        <h2>音声プレビュー</h2>
-        <p>生成済みチャンクのパスを一覧します。ブラウザ版ではローカルファイル再生権限が限定されるため、Tauri統合後にアプリ内再生を接続します。</p>
-        <div class="queue-grid">
-          {#each Object.values($chunkStateStore).filter((chunk) => chunk.audioPath) as chunk}
-            <article>
-              <strong>{chunk.id}</strong>
-              <span>{chunk.audioPath}</span>
+        <div class="generation-head">
+          <div>
+            <h2>音声プレビュー</h2>
+            <p>生成済みチャンクを章WAVへ結合し、全体WAVとして書き出します。</p>
+          </div>
+          <div class="actions">
+            <button disabled={!selectedChapter || !nativeFileApi} on:click={mergeSelectedChapterAudio}>選択章を結合</button>
+            <button class="primary" disabled={chunkAudioRecords.length === 0 || !nativeFileApi} on:click={exportWholeWav}>全体WAVを書き出し</button>
+          </div>
+        </div>
+        {#if audioError}<p class="error-banner">{audioError}</p>{/if}
+        {#if selectedAudioPath}
+          <div class="audio-player">
+            <strong>{selectedAudioPath}</strong>
+            <audio controls src={toAudioSrc(selectedAudioPath)}></audio>
+            <div class="actions">
+              <button on:click={() => openSelectedAudio(selectedAudioPath)}>開く</button>
+              <button on:click={() => revealSelectedAudio(selectedAudioPath)}>フォルダで表示</button>
+            </div>
+          </div>
+        {/if}
+        <div class="audio-list">
+          {#each audioRecords as record}
+            <article class:active={selectedAudioPath === record.path}>
+              <div>
+                <strong>{record.label}</strong>
+                <span>{record.kind} / {record.path}</span>
+              </div>
+              <div class="actions">
+                <button on:click={() => (selectedAudioPath = record.path)}>再生</button>
+                <button disabled={!nativeFileApi} on:click={() => revealSelectedAudio(record.path)}>表示</button>
+                <button disabled={!nativeFileApi} on:click={() => deleteGeneratedAudio(record)}>削除</button>
+              </div>
             </article>
           {/each}
         </div>

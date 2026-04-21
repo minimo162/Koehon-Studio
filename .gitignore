@@ -7,6 +7,7 @@ generated_audio/
 src-tauri/target/
 src-tauri/gen/
 native-tts/target/
+native-tts/sidecars/
 
 .DS_Store
 *.log
