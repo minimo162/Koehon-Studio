@@ -203,7 +203,10 @@ async function runQueue(
         requestId: chunk.id,
         text: chunk.text ?? "",
         voice: project.settings.voice,
-        outputPath: getChunkOutputPath(chunk, project.projectDir),
+        outputPath: getChunkOutputPath(
+          chunk,
+          project.settings.outputDirectory || project.projectDir,
+        ),
       });
       updateChunk({ ...chunk, status: "done", audioPath: result.audioPath });
       incrementCompleted();

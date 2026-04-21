@@ -13,6 +13,7 @@ import type {
   Project,
   ProjectSettings,
 } from "./projectTypes";
+import { normalizeProjectSettings } from "../stores/appSettings";
 
 export type ProjectSnapshot = {
   schemaVersion: 1;
@@ -202,7 +203,7 @@ function parseProjectSnapshot(raw: string): ProjectSnapshot {
     updatedAt: parsed.updatedAt ?? new Date().toISOString(),
     manuscriptFile: parsed.manuscriptFile,
     metadata: parsed.metadata,
-    settings: parsed.settings,
+    settings: normalizeProjectSettings(parsed.settings),
     chapterInclusion: parsed.chapterInclusion ?? {},
     generation: normalizeGenerationState(
       parsed.generation ?? {

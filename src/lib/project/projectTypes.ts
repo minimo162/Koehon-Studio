@@ -45,6 +45,8 @@ export type Chapter = {
 export type ProjectSettings = {
   ttsEngine: "moss-tts-nano-onnx";
   voice?: string;
+  modelDirectory?: string;
+  outputDirectory?: string;
   cpuThreads: number;
   maxChunkChars: number;
   pauseShortMs: number;
@@ -82,6 +84,8 @@ export type Project = {
 export const defaultProjectSettings: ProjectSettings = {
   ttsEngine: "moss-tts-nano-onnx",
   voice: "default",
+  modelDirectory: "",
+  outputDirectory: "",
   cpuThreads: 4,
   maxChunkChars: 450,
   pauseShortMs: 500,

@@ -3,12 +3,14 @@
   import { get } from "svelte/store";
   import { buildChapterMergeInputs, deleteAudioFile, getChapterOutputPath, getExportOutputPath, mergeWavFiles, openAudioFile, revealAudioFile, selectExportPath, toAudioSrc, type AudioFileRecord } from "./lib/api/audioFiles";
   import { isTauriRuntime, openManuscriptPath, openManuscriptWithDialog, saveManuscriptFile } from "./lib/api/fileAccess";
+  import { getSettingsFilePath, loadSettingsFile, saveSettingsFile, selectDirectory } from "./lib/api/settingsPersistence";
   import { ensureSidecar, restartSidecar, stopSidecar, type SidecarStatus } from "./lib/api/sidecarManager";
   import { openProjectPath, openProjectWithDialog, saveProjectWithDialog } from "./lib/project/projectPersistence";
+  import type { ProjectSettings } from "./lib/project/projectTypes";
   import { buildPrompt, sourceTypeInstructions, type PromptOptions } from "./lib/prompt/promptTemplates";
-  import { appSettingsStore } from "./lib/stores/appSettings";
+  import { appSettingsStore, validateProjectSettings } from "./lib/stores/appSettings";
   import { generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
-  import { manuscriptStore, markProjectSaved, markSaved, markSavedAs, restoreManuscriptProject, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
+  import { manuscriptStore, markProjectSaved, markSaved, markSavedAs, reparseManuscript, restoreManuscriptProject, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
   import { projectStore } from "./lib/stores/projectStore";
   import { recentFilesStore, rememberRecentFile } from "./lib/stores/recentFiles";
   import { recentProjectsStore, rememberRecentProject } from "./lib/stores/recentProjects";
@@ -32,6 +34,9 @@
   let exportAudioPath = "";
   let nativeFileApi = isTauriRuntime();
   let sidecarStatus: SidecarStatus = "idle";
+  let settingsFilePath = "";
+  let settingsError = "";
+  let settingsSavedMessage = "";
 
   $: chapters = $projectStore.chapters;
   $: if (!selectedChapterId && chapters.length > 0) selectedChapterId = chapters[0].id;
@@ -73,6 +78,7 @@
   ];
 
   onMount(() => {
+    loadPersistedSettings();
     if (!nativeFileApi) return;
     ensureSidecar({
       onStatus: (status) => (sidecarStatus = status),
@@ -87,6 +93,22 @@
       });
     };
   });
+
+  async function loadPersistedSettings(): Promise<void> {
+    settingsError = "";
+    if (!nativeFileApi) return;
+    try {
+      const loaded = await loadSettingsFile();
+      settingsFilePath = loaded?.path ?? (await getSettingsFilePath()) ?? "";
+      if (!loaded) return;
+      appSettingsStore.set(loaded.settings);
+      reparseManuscript();
+      logGeneration("info", "settings.json を読み込みました。");
+    } catch (error) {
+      settingsError = error instanceof Error ? error.message : String(error);
+      logGeneration("error", settingsError);
+    }
+  }
 
   async function startNativeSidecar(): Promise<boolean> {
     try {
@@ -274,9 +296,35 @@
     window.setTimeout(() => (copied = false), 1400);
   }
 
-  function updateSetting<K extends keyof typeof $appSettingsStore>(key: K, value: (typeof $appSettingsStore)[K]): void {
+  function updateSetting<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]): void {
+    settingsSavedMessage = "";
     appSettingsStore.update((settings) => ({ ...settings, [key]: value }));
-    updateManuscript(get(manuscriptStore).raw);
+    settingsError = validateProjectSettings(get(appSettingsStore)).join("\n");
+    reparseManuscript();
+  }
+
+  async function saveSettings(): Promise<void> {
+    settingsError = validateProjectSettings(get(appSettingsStore)).join("\n");
+    if (settingsError) return;
+    try {
+      const path = await saveSettingsFile(get(appSettingsStore));
+      settingsFilePath = path ?? settingsFilePath;
+      settingsSavedMessage = "設定を保存しました。";
+      logGeneration("info", "settings.json を保存しました。");
+    } catch (error) {
+      settingsError = error instanceof Error ? error.message : String(error);
+      logGeneration("error", settingsError);
+    }
+  }
+
+  async function chooseModelDirectory(): Promise<void> {
+    const selected = await selectDirectory("モデルディレクトリを選択");
+    if (selected) updateSetting("modelDirectory", selected);
+  }
+
+  async function chooseOutputDirectory(): Promise<void> {
+    const selected = await selectDirectory("出力ディレクトリを選択");
+    if (selected) updateSetting("outputDirectory", selected);
   }
 
   function toggleChapterNarration(chapterId: string, includeInNarration: boolean): void {
@@ -294,7 +342,7 @@
     if (!chapter) return undefined;
     try {
       const project = get(projectStore);
-      const outputPath = getChapterOutputPath(chapter, project.projectDir);
+      const outputPath = getChapterOutputPath(chapter, project.settings.outputDirectory || project.projectDir);
       const result = await mergeWavFiles(buildChapterMergeInputs(chapter, get(chunkStateStore)), outputPath);
       chapterAudioPaths = { ...chapterAudioPaths, [chapter.id]: result.outputPath };
       selectedAudioPath = result.outputPath;
@@ -318,7 +366,7 @@
         if (!path) return;
         chapterPaths.push(path);
       }
-      const defaultPath = getExportOutputPath(project.title, project.projectDir);
+      const defaultPath = getExportOutputPath(project.title, project.settings.outputDirectory || project.projectDir);
       const outputPath = await selectExportPath(defaultPath);
       if (!outputPath) return;
       const result = await mergeWavFiles(chapterPaths.map((path) => ({ type: "file", path })), outputPath);
@@ -609,15 +657,33 @@
         <pre class="prompt-preview">{promptText}</pre>
       </section>
     {:else if activeView === "settings"}
-      <section class="panel settings-grid">
-        <label>CPUスレッド数<input type="number" min="1" max="32" value={$appSettingsStore.cpuThreads} on:input={(event) => updateSetting("cpuThreads", Number((event.currentTarget as HTMLInputElement).value))} /></label>
-        <label>最大チャンク文字数<input type="number" min="100" max="1200" value={$appSettingsStore.maxChunkChars} on:input={(event) => updateSetting("maxChunkChars", Number((event.currentTarget as HTMLInputElement).value))} /></label>
-        <label>短い無音(ms)<input type="number" min="0" value={$appSettingsStore.pauseShortMs} on:input={(event) => updateSetting("pauseShortMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
-        <label>標準無音(ms)<input type="number" min="0" value={$appSettingsStore.pauseMediumMs} on:input={(event) => updateSetting("pauseMediumMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
-        <label>長い無音(ms)<input type="number" min="0" value={$appSettingsStore.pauseLongMs} on:input={(event) => updateSetting("pauseLongMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
-        <label>既定話者<input value={$appSettingsStore.voice} on:input={(event) => updateSetting("voice", (event.currentTarget as HTMLInputElement).value)} /></label>
-        <label>出力形式<select value={$appSettingsStore.exportFormat} on:change={(event) => updateSetting("exportFormat", (event.currentTarget as HTMLSelectElement).value as "wav" | "mp3" | "m4b")}><option>wav</option><option>mp3</option><option>m4b</option></select></label>
-        <label class="checkbox"><input type="checkbox" checked={$appSettingsStore.includeManuscriptMemo} on:change={(event) => updateSetting("includeManuscriptMemo", (event.currentTarget as HTMLInputElement).checked)} /> 原稿作成メモを読み上げ対象にする</label>
+      <section class="panel settings-panel">
+        <div class="generation-head">
+          <div>
+            <h2>設定</h2>
+            <p>{settingsFilePath || "ブラウザ実行中は localStorage に保存されます。"}</p>
+          </div>
+          <div class="actions">
+            <button disabled={!nativeFileApi} on:click={loadPersistedSettings}>再読み込み</button>
+            <button class="primary" disabled={!nativeFileApi || Boolean(settingsError)} on:click={saveSettings}>設定保存</button>
+          </div>
+        </div>
+        {#if settingsError}<p class="error-banner">{settingsError}</p>{/if}
+        {#if settingsSavedMessage}<p class="success-banner">{settingsSavedMessage}</p>{/if}
+        <div class="settings-grid">
+          <label>TTSエンジン<select value={$appSettingsStore.ttsEngine} disabled><option value="moss-tts-nano-onnx">MOSS-TTS-Nano ONNX</option></select></label>
+          <label>CPUスレッド数<input type="number" min="1" max="32" value={$appSettingsStore.cpuThreads} on:input={(event) => updateSetting("cpuThreads", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>最大チャンク文字数<input type="number" min="100" max="1200" value={$appSettingsStore.maxChunkChars} on:input={(event) => updateSetting("maxChunkChars", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>サンプルレート(Hz)<input type="number" min="8000" max="192000" step="1000" value={$appSettingsStore.outputSampleRate} on:input={(event) => updateSetting("outputSampleRate", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>短い無音(ms)<input type="number" min="0" max="10000" value={$appSettingsStore.pauseShortMs} on:input={(event) => updateSetting("pauseShortMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>標準無音(ms)<input type="number" min="0" max="10000" value={$appSettingsStore.pauseMediumMs} on:input={(event) => updateSetting("pauseMediumMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>長い無音(ms)<input type="number" min="0" max="10000" value={$appSettingsStore.pauseLongMs} on:input={(event) => updateSetting("pauseLongMs", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+          <label>既定話者<input value={$appSettingsStore.voice} on:input={(event) => updateSetting("voice", (event.currentTarget as HTMLInputElement).value)} /></label>
+          <label>出力形式<select value={$appSettingsStore.exportFormat} disabled><option value="wav">wav</option></select></label>
+          <label class="path-field">モデルディレクトリ<span><input value={$appSettingsStore.modelDirectory} on:input={(event) => updateSetting("modelDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseModelDirectory}>選択</button></span></label>
+          <label class="path-field">出力ディレクトリ<span><input value={$appSettingsStore.outputDirectory} on:input={(event) => updateSetting("outputDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseOutputDirectory}>選択</button></span></label>
+          <label class="checkbox"><input type="checkbox" checked={$appSettingsStore.includeManuscriptMemo} on:change={(event) => updateSetting("includeManuscriptMemo", (event.currentTarget as HTMLInputElement).checked)} /> 原稿作成メモを読み上げ対象にする</label>
+        </div>
       </section>
     {:else if activeView === "logs"}
       <section class="panel log-list">

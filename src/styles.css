@@ -145,6 +145,15 @@ nav button.active {
   color: #7e2c1e;
   border-radius: 8px;
   padding: 0.75rem 1rem;
+  white-space: pre-wrap;
+}
+
+.success-banner {
+  border: 1px solid #79a88d;
+  background: #f2faf5;
+  color: #23543d;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
 }
 
 h1,
@@ -472,11 +481,27 @@ select {
   max-height: calc(100vh - 120px);
 }
 
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 1rem;
   align-content: start;
+}
+
+.path-field {
+  grid-column: 1 / -1;
+}
+
+.path-field span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
 }
 
 .checkbox {

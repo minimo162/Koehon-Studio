@@ -67,6 +67,14 @@ export function updateManuscript(raw: string): void {
   }
 }
 
+export function reparseManuscript(): void {
+  try {
+    manuscriptStore.update((state) => ({ ...state, parsed: parse(state.raw), error: undefined }));
+  } catch (error) {
+    manuscriptStore.update((state) => ({ ...state, error: String(error) }));
+  }
+}
+
 export function markSaved(): void {
   manuscriptStore.update((state) => ({ ...state, dirty: false }));
 }
