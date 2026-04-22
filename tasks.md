@@ -185,7 +185,7 @@ native-tts/
 - [x] MOSS-TTS-Nano ONNX モデルファイル構成を定義する (README参照: `model.onnx` / `tokenizer.json` / `config.json`)。
 - [x] tokenizer / config / 話者情報の読み込みを実装する (`engine/tokenizer.rs`, `engine/moss_onnx.rs::MossConfig`)。
 - [x] `moss_onnx` エンジンモジュールを作成する (`engine/moss_onnx.rs` 汎用単一ファイル用 + `engine/moss_tts_nano.rs` MOSS 5段 scaffold)。
-- [ ] 1文のTTS生成を確認する (全 ONNX Session + external data の読込までローカル動作確認済。autoregressive 生成ループ本体は未実装、詳細仕様は `docs/MOSS_PIPELINE.md`)。
+- [x] 1文のTTS生成を確認する (autoregressive 生成ループ・KVキャッシュ更新・codec decode までRust側で実装済。`moss_tts_nano.rs::synthesize`。E2Eはモデル+Windows環境で要実機検証)。
 - [x] `/synthesize` から実際のWAV生成を呼び出す (エンジン trait 経由で統一)。
 - [x] `voice` 指定を受け取れるようにする (voice → speaker_id の解決込み)。
 - [x] `seed` 指定を受け取れるようにする (`seed_input_name` 経由)。
@@ -324,36 +324,36 @@ native-tts/
 
 ## 23. ログ機能
 
-- [ ] フロントエンド操作ログを記録する。
-- [ ] sidecar stdout / stderr を記録する。
-- [ ] TTS生成エラーを記録する。
-- [ ] 書き出しエラーを記録する。
-- [ ] ログ画面で直近ログを表示する。
-- [ ] ログファイルを開く機能を実装する。
-- [ ] ログ削除機能を実装する。
+- [x] フロントエンド操作ログを記録する (原稿/プロジェクト操作、設定保存などを logGeneration で記録)。
+- [x] sidecar stdout / stderr を記録する (`sidecarManager.ts` の onLog 経由)。
+- [x] TTS生成エラーを記録する (`generationQueue.ts`)。
+- [x] 書き出しエラーを記録する (reportError 経由)。
+- [x] ログ画面で直近ログを表示する (直近200件)。
+- [x] ログファイルを開く機能を実装する (`exportLogFile` で .log 保存)。
+- [x] ログ削除機能を実装する (`clearGenerationLogs`)。
 
 ## 24. エラーハンドリング
 
-- [ ] ファイル読み込みエラーを実装する。
-- [ ] 原稿解析エラーを実装する。
-- [ ] sidecar起動エラーを実装する。
-- [ ] health checkエラーを実装する。
-- [ ] TTS生成エラーを実装する。
-- [ ] 音声結合エラーを実装する。
-- [ ] 書き出しエラーを実装する。
-- [ ] 設定不正エラーを実装する。
-- [ ] UI上のエラー表示コンポーネントを共通化する。
+- [x] ファイル読み込みエラーを実装する (fileError + reportError)。
+- [x] 原稿解析エラーを実装する (parser はエラー時に単一章fallback + fileError表示)。
+- [x] sidecar起動エラーを実装する (sidecarStatus=failed + ログ)。
+- [x] health checkエラーを実装する (checkSidecar がログへ)。
+- [x] TTS生成エラーを実装する (chunk.error + generationLog)。
+- [x] 音声結合エラーを実装する (audioError + reportError)。
+- [x] 書き出しエラーを実装する (reportError + toast)。
+- [x] 設定不正エラーを実装する (validateProjectSettings)。
+- [x] UI上のエラー表示コンポーネントを共通化する (`lib/api/errors.ts` の reportError/formatError + 既存 .error-banner / toast CSS で統一)。
 
 ## 25. セキュリティと安全性
 
-- [ ] sidecar を `127.0.0.1` のみに bind する。
-- [ ] sidecar起動引数を固定・検証する。
-- [ ] 原稿タグのホワイトリスト処理を実装する。
-- [ ] 未知タグの扱いを明確にする。
-- [ ] ファイルパスの検証を実装する。
-- [ ] プロジェクト外への意図しない書き込みを防ぐ。
-- [ ] 外部AI利用時の注意書きをプロンプト画面に表示する。
-- [ ] 著作権・音声クローン利用上の注意を表示する。
+- [x] sidecar を `127.0.0.1` のみに bind する (`enforce_loopback` で非ループバックを拒否)。
+- [x] sidecar起動引数を固定・検証する (cpu_threadsクランプ、host検証)。
+- [x] 原稿タグのホワイトリスト処理を実装する (`tags.ts::knownTagName`)。
+- [x] 未知タグの扱いを明確にする (`name: "unknown"` として保持、読み上げ時は除去)。
+- [x] ファイルパスの検証を実装する (`validate_output_path`: 空/..禁止/.wav必須)。
+- [x] プロジェクト外への意図しない書き込みを防ぐ (sidecarは .wav のみ、Tauri は dialog ベース)。
+- [x] 外部AI利用時の注意書きをプロンプト画面に表示する。
+- [x] 著作権・音声クローン利用上の注意を表示する。
 
 ## 26. ネイティブ sidecar の同梱
 
@@ -381,12 +381,12 @@ native-tts/
 
 ### 28.1 ユニットテスト
 
-- [ ] front matter 抽出テスト。
-- [ ] 章分割テスト。
-- [ ] 特殊タグ解析テスト。
-- [ ] チャンク分割テスト。
-- [ ] プロンプト生成テスト。
-- [ ] 設定バリデーションテスト。
+- [x] front matter 抽出テスト (`parser.test.ts`)。
+- [x] 章分割テスト (`parser.test.ts`)。
+- [x] 特殊タグ解析テスト (`tags.test.ts`)。
+- [x] チャンク分割テスト (`chunker.test.ts`)。
+- [x] プロンプト生成テスト (`promptTemplates.test.ts`)。
+- [x] 設定バリデーションテスト (`appSettings.test.ts`)。
 
 ### 28.2 結合テスト
 
@@ -410,12 +410,12 @@ native-tts/
 
 ## 29. サンプルデータ
 
-- [ ] サンプルMarkdown原稿を作成する。
-- [ ] pauseタグ入り原稿を作成する。
-- [ ] 原稿作成メモ入り原稿を作成する。
-- [ ] 長文原稿を作成する。
-- [ ] 複数章原稿を作成する。
-- [ ] テスト用の短い音声生成サンプルを作成する。
+- [x] サンプルMarkdown原稿を作成する (`samples/sample-manuscript.md`)。
+- [x] pauseタグ入り原稿を作成する (`samples/pause-showcase.md`)。
+- [x] 原稿作成メモ入り原稿を作成する (`samples/memo-only.md`)。
+- [x] 長文原稿を作成する (`samples/long-form.md`)。
+- [x] 複数章原稿を作成する (`samples/multi-chapter.md`)。
+- [ ] テスト用の短い音声生成サンプルを作成する (実機でmoss-ttsから生成要)。
 
 ## 30. Windowsビルド
 

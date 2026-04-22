@@ -59,6 +59,23 @@ export async function saveManuscriptFile(contents: string, currentPath?: string)
   };
 }
 
+export async function exportLogFile(contents: string): Promise<string | undefined> {
+  if (!isTauriRuntime()) return undefined;
+  const path = await save({
+    filters: [{ name: "Log", extensions: ["log", "txt"] }],
+    defaultPath: `koehon-studio-log-${logTimestamp()}.log`
+  });
+  if (!path) return undefined;
+  await writeTextFile(path, contents);
+  return path;
+}
+
+function logTimestamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
 function basename(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
 }

@@ -40,6 +40,18 @@ export function logGeneration(
   );
 }
 
+export function clearGenerationLogs(): void {
+  generationLogsStore.set([]);
+}
+
+export function formatGenerationLogs(logs: GenerationLog[]): string {
+  return logs
+    .slice()
+    .reverse()
+    .map((log) => `[${log.at}] ${log.level.toUpperCase()}\t${log.message}`)
+    .join("\n");
+}
+
 export function restoreChunkStates(
   chunks: Record<string, Partial<ManuscriptChunk>>,
   missingAudioPaths: string[] = [],

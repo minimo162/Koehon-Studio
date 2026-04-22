@@ -1349,6 +1349,31 @@ pre {
   max-height: calc(100vh - 140px);
 }
 
+.prompt-layout .notice {
+  border-left: 2px solid var(--accent);
+  padding: 0.8rem 1rem;
+  background: var(--card-alt);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.prompt-layout .notice strong {
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.prompt-layout .notice ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
 /* ——————— Settings ——————— */
 
 .settings-panel {
@@ -1444,6 +1469,21 @@ input:disabled {
   gap: 0;
   overflow: auto;
   max-height: calc(100vh - 180px);
+}
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--hair-soft);
+  gap: 0.6rem;
+  color: var(--ink-faint);
+}
+
+.log-toolbar > div {
+  display: flex;
+  gap: 0.4rem;
 }
 
 .log-list article {

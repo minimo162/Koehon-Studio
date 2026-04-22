@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import { buildChapterMergeInputs, deleteAudioFile, getChapterOutputPath, getExportOutputPath, mergeWavFiles, openAudioFile, revealAudioFile, selectExportPath, toAudioSrc, type AudioFileRecord } from "./lib/api/audioFiles";
-  import { isTauriRuntime, openManuscriptPath, openManuscriptWithDialog, saveManuscriptFile } from "./lib/api/fileAccess";
+  import { reportError } from "./lib/api/errors";
+  import { exportLogFile, isTauriRuntime, openManuscriptPath, openManuscriptWithDialog, saveManuscriptFile } from "./lib/api/fileAccess";
   import { getSettingsFilePath, loadSettingsFile, saveSettingsFile, selectDirectory } from "./lib/api/settingsPersistence";
   import { ensureSidecar, restartSidecar, stopSidecar, type SidecarStatus } from "./lib/api/sidecarManager";
   import { openProjectPath, openProjectWithDialog, saveProjectWithDialog } from "./lib/project/projectPersistence";
@@ -16,7 +17,7 @@
   } from "./lib/api/modelDownloader";
   import { buildPrompt, sourceTypeInstructions, type PromptOptions } from "./lib/prompt/promptTemplates";
   import { appSettingsStore, validateProjectSettings } from "./lib/stores/appSettings";
-  import { generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
+  import { clearGenerationLogs, formatGenerationLogs, generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
   import { manuscriptStore, markProjectSaved, markSaved, markSavedAs, reparseManuscript, restoreManuscriptProject, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
   import { projectStore } from "./lib/stores/projectStore";
   import { recentFilesStore, rememberRecentFile } from "./lib/stores/recentFiles";
@@ -198,8 +199,7 @@
       reparseManuscript();
       logGeneration("info", "settings.json を読み込みました。");
     } catch (error) {
-      settingsError = error instanceof Error ? error.message : String(error);
-      logGeneration("error", settingsError);
+      settingsError = reportError("設定の読み込みに失敗しました", error);
     }
   }
 
@@ -398,8 +398,9 @@
       setManuscript(file.contents, file.name, file.path);
       rememberRecentFile(file.path, file.name);
       activeView = "manuscript";
+      logGeneration("info", `原稿を開きました: ${file.name}`);
     } catch (error) {
-      fileError = error instanceof Error ? error.message : String(error);
+      fileError = reportError("原稿を開けませんでした", error);
     }
   }
 
@@ -411,8 +412,9 @@
       setManuscript(file.contents, file.name, file.path);
       rememberRecentFile(file.path, file.name);
       activeView = "manuscript";
+      logGeneration("info", `原稿を開きました: ${file.name}`);
     } catch (error) {
-      fileError = error instanceof Error ? error.message : String(error);
+      fileError = reportError("原稿を開けませんでした", error);
     }
   }
 
@@ -424,15 +426,17 @@
         if (saved) {
           markSavedAs(saved.name, saved.path);
           rememberRecentFile(saved.path, saved.name);
+          logGeneration("info", `原稿を保存しました: ${saved.name}`);
           return;
         }
       } catch (error) {
-        fileError = error instanceof Error ? error.message : String(error);
+        fileError = reportError("原稿の保存に失敗しました", error);
         return;
       }
     }
     localStorage.setItem("koehon-studio-draft", get(manuscriptStore).raw);
     markSaved();
+    logGeneration("info", "下書きをローカルストレージに保存しました。");
   }
 
   async function saveProject(): Promise<void> {
@@ -454,8 +458,9 @@
       markProjectSaved(saved.projectDir, saved.projectFilePath, "manuscript.md", saved.manuscriptPath);
       rememberRecentProject(saved.projectFilePath, saved.snapshot.title);
       activeView = "manuscript";
+      logGeneration("info", `プロジェクトを保存しました: ${saved.snapshot.title}`);
     } catch (error) {
-      fileError = error instanceof Error ? error.message : String(error);
+      fileError = reportError("プロジェクトの保存に失敗しました", error);
     }
   }
 
@@ -469,8 +474,9 @@
       const loaded = await openProjectWithDialog();
       if (!loaded) return;
       restoreLoadedProject(loaded);
+      logGeneration("info", `プロジェクトを開きました: ${loaded.snapshot.title}`);
     } catch (error) {
-      fileError = error instanceof Error ? error.message : String(error);
+      fileError = reportError("プロジェクトを開けませんでした", error);
     }
   }
 
@@ -479,8 +485,9 @@
     try {
       const loaded = await openProjectPath(path);
       restoreLoadedProject(loaded);
+      logGeneration("info", `プロジェクトを開きました: ${loaded.snapshot.title}`);
     } catch (error) {
-      fileError = error instanceof Error ? error.message : String(error);
+      fileError = reportError("プロジェクトを開けませんでした", error);
     }
   }
 
@@ -532,8 +539,7 @@
       settingsSavedMessage = "設定を保存しました。";
       logGeneration("info", "settings.json を保存しました。");
     } catch (error) {
-      settingsError = error instanceof Error ? error.message : String(error);
-      logGeneration("error", settingsError);
+      settingsError = reportError("設定の保存に失敗しました", error);
     }
   }
 
@@ -649,8 +655,7 @@
       logGeneration("info", `${chapter.title} の章WAVを作成しました。`);
       return result.outputPath;
     } catch (error) {
-      audioError = error instanceof Error ? error.message : String(error);
-      logGeneration("error", audioError);
+      audioError = reportError(`${chapter.title} の章WAV結合に失敗しました`, error);
       return undefined;
     }
   }
@@ -675,8 +680,7 @@
       logGeneration("info", "全体WAVを書き出しました。");
       showNotification(`書き出しが完了しました: ${result.outputPath}`);
     } catch (error) {
-      audioError = error instanceof Error ? error.message : String(error);
-      logGeneration("error", audioError);
+      audioError = reportError("全体WAVの書き出しに失敗しました", error);
       showNotification(`書き出しに失敗しました: ${audioError}`, "error");
     }
   }
@@ -711,7 +715,7 @@
     try {
       await revealAudioFile(path);
     } catch (error) {
-      audioError = error instanceof Error ? error.message : String(error);
+      audioError = reportError("音声ファイルを表示できませんでした", error);
     }
   }
 
@@ -719,7 +723,24 @@
     try {
       await openAudioFile(path);
     } catch (error) {
-      audioError = error instanceof Error ? error.message : String(error);
+      audioError = reportError("音声ファイルを開けませんでした", error);
+    }
+  }
+
+  function clearLogs(): void {
+    clearGenerationLogs();
+    showNotification("ログを消去しました。");
+  }
+
+  async function exportLogsToFile(): Promise<void> {
+    try {
+      const path = await exportLogFile(formatGenerationLogs(get(generationLogsStore)));
+      if (!path) return;
+      logGeneration("info", `ログをファイルに保存しました: ${path}`);
+      showNotification(`ログを保存しました: ${path}`);
+    } catch (error) {
+      const message = reportError("ログの保存に失敗しました", error);
+      showNotification(`ログの保存に失敗しました: ${message}`, "error");
     }
   }
 
@@ -735,7 +756,7 @@
       if (record.kind === "export") exportAudioPath = "";
       if (selectedAudioPath === record.path) selectedAudioPath = "";
     } catch (error) {
-      audioError = error instanceof Error ? error.message : String(error);
+      audioError = reportError("音声ファイルの削除に失敗しました", error);
     }
   }
 </script>
@@ -1293,6 +1314,15 @@
           <label>長さ<input bind:value={promptOptions.length} /></label>
           <label>目的<textarea style="min-height:90px" bind:value={promptOptions.purpose}></textarea></label>
           <button type="button" class="primary" on:click={copyPrompt}>{copied ? "✓ コピー済み" : "プロンプトをコピー"}</button>
+          <aside class="notice">
+            <strong>利用上の注意</strong>
+            <ul>
+              <li>外部AIサービス (ChatGPT, Claude, Gemini など) にプロンプトを貼り付けると、入力内容がサービス提供者のサーバーに送信されます。機密情報や社外秘資料を扱う際は、各サービスの利用規約・データ取り扱い方針を必ず確認してください。</li>
+              <li>元資料の著作権は著作者に帰属します。原稿化・音声化する前に、複製・翻案・公衆送信の権利範囲を確認してください。</li>
+              <li>音声クローン (参照音声) を用いる場合は、その話者本人から明示的な同意を得てください。無断利用は肖像権・人格権の侵害となる可能性があります。</li>
+              <li>生成された音声の商用利用は、モデル提供元のライセンス (MOSS-TTS-Nano は研究目的前提) に従ってください。</li>
+            </ul>
+          </aside>
         </form>
         <pre class="prompt-preview">{promptText}</pre>
       </section>
@@ -1439,6 +1469,13 @@
 
     {:else if activeView === "logs"}
       <section class="log-list">
+        <div class="log-toolbar">
+          <small>{$generationLogsStore.length} 件 (最新200件)</small>
+          <div>
+            <button class="ghost" type="button" on:click={exportLogsToFile} disabled={$generationLogsStore.length === 0 || !nativeFileApi}>ファイルへ保存</button>
+            <button class="ghost" type="button" on:click={clearLogs} disabled={$generationLogsStore.length === 0}>クリア</button>
+          </div>
+        </div>
         {#if $generationLogsStore.length === 0}
           <p class="empty">ログはまだありません。</p>
         {:else}
