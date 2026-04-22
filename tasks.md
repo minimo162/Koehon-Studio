@@ -366,7 +366,7 @@ native-tts/
 - [ ] sidecar から ONNX Runtime DLL とMOSSモデルを参照できることを確認する (tasks 12 で実装予定)。
 - [x] Python未インストール環境で sidecar 起動できる構成にする (Rust std のみ依存、ONNX連携前のテストトーン段階)。
 - [ ] 依存DLL不足を確認する (ONNX連携後)。
-- [ ] 配布サイズを確認する (ONNX連携後)。
+- [x] 配布サイズを確認する (現状: MSI 4.0MB / NSIS 2.7MB、ONNX連携後に要再計測)。
 
 ## 27. モデル管理
 
@@ -421,12 +421,12 @@ native-tts/
 
 ## 30. Windowsビルド
 
-- [ ] `pnpm tauri build` を実行する。
-- [ ] インストーラー生成を確認する。
-- [ ] sidecar が同梱されていることを確認する。
-- [ ] 起動後に sidecar が動作することを確認する。
-- [ ] appDataDir にデータが保存されることを確認する。
-- [ ] Windows Defender などで誤検知されにくい構成を確認する。
+- [x] `pnpm tauri build` を実行する (GitHub Actions `windows-build.yml` / run 24755808593)。
+- [x] インストーラー生成を確認する (MSI 4.0MB / NSIS setup.exe 2.7MB / unbundled .exe)。
+- [x] sidecar が同梱されていることを確認する (externalBin による自動バンドル)。
+- [ ] 起動後に sidecar が動作することを確認する (要実機確認)。
+- [ ] appDataDir にデータが保存されることを確認する (要実機確認)。
+- [ ] Windows Defender などで誤検知されにくい構成を確認する (コード署名検討)。
 - [ ] クリーンなWindows環境で起動確認する。
 
 ## 31. 初期受け入れテスト
