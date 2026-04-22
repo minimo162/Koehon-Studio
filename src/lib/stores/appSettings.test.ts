@@ -12,12 +12,14 @@ describe("appSettings", () => {
         cpuThreads: 64,
         maxChunkChars: 10,
         pauseShortMs: -1,
+        readUrls: true,
         voice: "  narrator  ",
       }),
     ).toMatchObject({
       cpuThreads: 32,
       maxChunkChars: 100,
       pauseShortMs: 0,
+      readUrls: true,
       voice: "narrator",
     });
   });

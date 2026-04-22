@@ -9,4 +9,8 @@ describe("normalizeForSpeech", () => {
   it("keeps link labels and inline code content", () => {
     expect(normalizeForSpeech("[資料](https://example.com) と `設定値` を確認します。")).toBe("資料 と 設定値 を確認します。");
   });
+
+  it("keeps bare URLs when enabled", () => {
+    expect(normalizeForSpeech("詳細は https://example.com/path を確認します。", { readUrls: true })).toBe("詳細は https://example.com/path を確認します。");
+  });
 });

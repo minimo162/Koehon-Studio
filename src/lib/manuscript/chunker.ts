@@ -23,7 +23,7 @@ export function createChunks(chapterId: string, rawMarkdown: string, settings: P
       continue;
     }
 
-    const normalized = normalizeForSpeech(part.value);
+    const normalized = normalizeForSpeech(part.value, { readUrls: settings.readUrls });
     for (const text of splitText(normalized, settings.maxChunkChars)) {
       chunks.push({
         id: `${chapterId}-chunk-${String(order).padStart(3, "0")}`,

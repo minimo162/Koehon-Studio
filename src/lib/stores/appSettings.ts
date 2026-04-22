@@ -39,6 +39,7 @@ export function normalizeProjectSettings(input: PersistedProjectSettings): Proje
     outputSampleRate: clampInteger(input.outputSampleRate, 8_000, 192_000, defaultProjectSettings.outputSampleRate),
     exportFormat: "wav",
     includeManuscriptMemo: typeof input.includeManuscriptMemo === "boolean" ? input.includeManuscriptMemo : defaultProjectSettings.includeManuscriptMemo,
+    readUrls: typeof input.readUrls === "boolean" ? input.readUrls : defaultProjectSettings.readUrls,
   };
 }
 

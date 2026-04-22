@@ -74,7 +74,7 @@ export function splitChapters(body: string, settings: ProjectSettings = defaultP
       level: 1,
       order: 1,
       rawMarkdown,
-      plainText: normalizeForSpeech(rawMarkdown),
+      plainText: normalizeForSpeech(rawMarkdown, { readUrls: settings.readUrls }),
       includeInNarration: true,
       chunks: []
     };
@@ -106,7 +106,7 @@ function buildChapter(order: number, title: string, rawMarkdown: string, include
     level: 1,
     order,
     rawMarkdown,
-    plainText: normalizeForSpeech(rawMarkdown),
+    plainText: normalizeForSpeech(rawMarkdown, { readUrls: settings.readUrls }),
     includeInNarration,
     chunks: []
   };

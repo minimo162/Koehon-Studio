@@ -55,6 +55,7 @@ export type ProjectSettings = {
   outputSampleRate: number;
   exportFormat: "wav" | "mp3" | "m4b";
   includeManuscriptMemo: boolean;
+  readUrls: boolean;
 };
 
 export type GenerationState = {
@@ -93,7 +94,8 @@ export const defaultProjectSettings: ProjectSettings = {
   pauseLongMs: 2000,
   outputSampleRate: 48000,
   exportFormat: "wav",
-  includeManuscriptMemo: false
+  includeManuscriptMemo: false,
+  readUrls: false
 };
 
 export const defaultGenerationState: GenerationState = {

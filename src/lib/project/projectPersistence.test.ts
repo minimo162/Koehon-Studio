@@ -23,6 +23,7 @@ const baseProject: Project = {
     outputSampleRate: 48000,
     exportFormat: "wav",
     includeManuscriptMemo: false,
+    readUrls: false,
   },
   generation: {
     status: "running",
