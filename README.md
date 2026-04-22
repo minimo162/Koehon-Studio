@@ -20,6 +20,13 @@ pnpm build:sidecar       # sidecar のみ (debug)
 pnpm build:sidecar:release
 ```
 
+## Windowsインストーラの配布形式
+
+- **NSIS (`.exe`)**: 起動時に「現在のユーザーだけ / この PC 全体」を選択可能。ユーザーだけを選べば管理者権限なしで `%LOCALAPPDATA%\Programs\Koehon Studio\` にインストールされる (`tauri.conf.json` の `bundle.windows.nsis.installMode = "both"`)。
+- **MSI (`.msi`)**: WiX が生成する per-machine インストーラ。Group Policy / Intune など企業配布向け。管理者権限が必要。
+
+個人で別PCに入れるだけなら NSIS の方を使ってください。
+
 ## Windowsインストーラのビルド
 
 ### ローカル (Windows 実機)

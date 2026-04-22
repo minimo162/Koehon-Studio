@@ -36,7 +36,7 @@
     "externalBin": ["../native-tts/sidecars/koehon-tts-sidecar"],
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "both"
       }
     }
   }
