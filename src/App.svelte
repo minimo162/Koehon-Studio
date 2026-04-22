@@ -542,6 +542,11 @@
     if (selected) updateSetting("modelDirectory", selected);
   }
 
+  async function chooseCodecDirectory(): Promise<void> {
+    const selected = await selectDirectory("音声コーデックディレクトリを選択");
+    if (selected) updateSetting("codecDirectory", selected);
+  }
+
   async function chooseOutputDirectory(): Promise<void> {
     const selected = await selectDirectory("出力ディレクトリを選択");
     if (selected) updateSetting("outputDirectory", selected);
@@ -586,6 +591,8 @@
       showNotification(`${preset.label} をダウンロードしました。`);
       if (preset.id === "moss-tts-nano") {
         updateSetting("modelDirectory", targetDir);
+      } else if (preset.id === "moss-audio-tokenizer") {
+        updateSetting("codecDirectory", targetDir);
       }
     } catch (error) {
       const message = error instanceof ModelDownloadError ? error.message : error instanceof Error ? error.message : String(error);
@@ -1357,6 +1364,7 @@
           </header>
           <div class="settings-grid">
             <label class="path-field">モデルディレクトリ<span><input value={$appSettingsStore.modelDirectory} on:input={(event) => updateSetting("modelDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseModelDirectory}>選択</button></span></label>
+            <label class="path-field">音声コーデックディレクトリ<span><input placeholder="未指定ならモデル隣接の moss-audio-tokenizer を自動使用" value={$appSettingsStore.codecDirectory} on:input={(event) => updateSetting("codecDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseCodecDirectory}>選択</button></span></label>
             <label class="path-field">出力ディレクトリ<span><input value={$appSettingsStore.outputDirectory} on:input={(event) => updateSetting("outputDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseOutputDirectory}>選択</button></span></label>
           </div>
         </div>

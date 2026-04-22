@@ -150,12 +150,13 @@ fn print_usage() {
     println!("koehon-tts-sidecar");
     println!();
     println!("USAGE:");
-    println!("  koehon-tts-sidecar [--host HOST:PORT] [--model-dir DIR]");
+    println!("  koehon-tts-sidecar [--host HOST:PORT] [--model-dir DIR] [--codec-dir DIR]");
     println!("                     [--ort-dylib PATH] [--cpu-threads N]");
     println!();
     println!("ENV:");
     println!("  KOEHON_TTS_ADDR         Equivalent to --host");
     println!("  KOEHON_MODEL_DIR        Equivalent to --model-dir");
+    println!("  KOEHON_CODEC_DIR        Equivalent to --codec-dir");
     println!("  ORT_DYLIB_PATH          Equivalent to --ort-dylib");
     println!("  KOEHON_CPU_THREADS      Equivalent to --cpu-threads");
 }

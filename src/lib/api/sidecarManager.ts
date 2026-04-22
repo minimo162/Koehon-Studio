@@ -18,13 +18,29 @@ const sidecarProgram = "../native-tts/sidecars/koehon-tts-sidecar";
 function buildArgs(): string[] {
   const settings = get(appSettingsStore);
   const args: string[] = [];
-  if (settings.modelDirectory && settings.modelDirectory.trim()) {
-    args.push("--model-dir", settings.modelDirectory.trim());
+  const modelDir = settings.modelDirectory?.trim() ?? "";
+  if (modelDir) {
+    args.push("--model-dir", modelDir);
+  }
+  const explicitCodecDir = settings.codecDirectory?.trim() ?? "";
+  const codecDir = explicitCodecDir || deriveCodecDir(modelDir);
+  if (codecDir) {
+    args.push("--codec-dir", codecDir);
   }
   if (settings.cpuThreads && settings.cpuThreads > 0) {
     args.push("--cpu-threads", String(settings.cpuThreads));
   }
   return args;
+}
+
+// MOSS preset layout: moss-tts-nano and moss-audio-tokenizer are siblings.
+export function deriveCodecDir(modelDir: string): string {
+  if (!modelDir) return "";
+  const sep = modelDir.includes("\\") && !modelDir.includes("/") ? "\\" : "/";
+  const trimmed = modelDir.endsWith(sep) ? modelDir.slice(0, -1) : modelDir;
+  const lastSep = trimmed.lastIndexOf(sep);
+  if (lastSep <= 0) return "";
+  return `${trimmed.slice(0, lastSep)}${sep}moss-audio-tokenizer`;
 }
 
 export async function ensureSidecar(events: SidecarEvents = {}): Promise<void> {

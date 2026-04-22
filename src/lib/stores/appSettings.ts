@@ -30,6 +30,7 @@ export function normalizeProjectSettings(input: PersistedProjectSettings): Proje
     ttsEngine: "moss-tts-nano-onnx",
     voice: normalizeText(input.voice, defaultProjectSettings.voice),
     modelDirectory: normalizeText(input.modelDirectory, ""),
+    codecDirectory: normalizeText(input.codecDirectory, ""),
     outputDirectory: normalizeText(input.outputDirectory, ""),
     cpuThreads: clampInteger(input.cpuThreads, 1, 32, defaultProjectSettings.cpuThreads),
     maxChunkChars: clampInteger(input.maxChunkChars, 100, 1200, defaultProjectSettings.maxChunkChars),

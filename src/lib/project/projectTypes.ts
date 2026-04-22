@@ -46,6 +46,7 @@ export type ProjectSettings = {
   ttsEngine: "moss-tts-nano-onnx";
   voice?: string;
   modelDirectory?: string;
+  codecDirectory?: string;
   outputDirectory?: string;
   cpuThreads: number;
   maxChunkChars: number;
@@ -86,6 +87,7 @@ export const defaultProjectSettings: ProjectSettings = {
   ttsEngine: "moss-tts-nano-onnx",
   voice: "default",
   modelDirectory: "",
+  codecDirectory: "",
   outputDirectory: "",
   cpuThreads: 4,
   maxChunkChars: 450,
