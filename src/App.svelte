@@ -276,7 +276,26 @@
       return;
     }
     setManuscript(await file.text(), file.name);
-    activeView = "manuscript";
+    advanceAfterManuscriptLoaded();
+  }
+
+  /**
+   * After a manuscript becomes available, move the user forward: if the
+   * engine is ready (real MOSS model), jump straight to the generation view
+   * and kick off a full-project synthesize so the user doesn't have to
+   * navigate three screens and hunt for a button. If the engine isn't ready
+   * (test-tone fallback, no models), land on the manuscript view instead so
+   * they can review content while the setup card is still visible on home.
+   */
+  function advanceAfterManuscriptLoaded(): void {
+    const hasChapters = get(projectStore).chapters.length > 0;
+    const engineReady = engineId && engineId !== "koehon-test-tone";
+    if (hasChapters && engineReady) {
+      activeView = "generation";
+      void generateAllWithSidecar();
+    } else {
+      activeView = "manuscript";
+    }
   }
 
   function buildCommands(): Command[] {
@@ -402,8 +421,8 @@
       return;
     }
     setManuscript(await file.text(), file.name);
-    activeView = "manuscript";
     input.value = "";
+    advanceAfterManuscriptLoaded();
   }
 
   async function openNativeManuscript(): Promise<void> {
@@ -413,8 +432,8 @@
       if (!file) return;
       setManuscript(file.contents, file.name, file.path);
       rememberRecentFile(file.path, file.name);
-      activeView = "manuscript";
       logGeneration("info", `原稿を開きました: ${file.name}`);
+      advanceAfterManuscriptLoaded();
     } catch (error) {
       fileError = reportError("原稿を開けませんでした", error);
     }
@@ -427,8 +446,8 @@
       if (!file) return;
       setManuscript(file.contents, file.name, file.path);
       rememberRecentFile(file.path, file.name);
-      activeView = "manuscript";
       logGeneration("info", `原稿を開きました: ${file.name}`);
+      advanceAfterManuscriptLoaded();
     } catch (error) {
       fileError = reportError("原稿を開けませんでした", error);
     }
