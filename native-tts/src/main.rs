@@ -1,8 +1,8 @@
 mod engine;
 
 use engine::{
-    moss_onnx, test_tone::TestToneEngine, EngineDiagnostic, SynthError, SynthInput, TtsEngine,
-    VoiceInfo,
+    moss_onnx, moss_tts_nano, test_tone::TestToneEngine, EngineDiagnostic, SynthError, SynthInput,
+    TtsEngine, VoiceInfo,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -153,7 +153,31 @@ fn print_usage() {
 }
 
 fn initialize_engine(args: &CliArgs) -> SidecarState {
-    let mut diagnostics = Vec::new();
+    let mut diagnostics: Vec<EngineDiagnostic> = Vec::new();
+
+    // 1. MOSS-TTS-Nano multi-stage layout (tts_browser_onnx_meta.json present)
+    if let Some(model_dir) = args.model_dir.as_deref() {
+        if moss_tts_nano::is_moss_layout(model_dir) {
+            let outcome = moss_tts_nano::try_load(model_dir, args.cpu_threads);
+            diagnostics.extend(outcome.diagnostics);
+            if let Some(engine) = outcome.engine {
+                return SidecarState {
+                    engine: Arc::new(engine),
+                    startup_diagnostics: diagnostics,
+                };
+            }
+            let reason = diagnostics
+                .last()
+                .map(|d| d.message.clone())
+                .unwrap_or_else(|| "MOSS-TTS-Nano レイアウトの読み込みに失敗しました".to_string());
+            return SidecarState {
+                engine: Arc::new(TestToneEngine::with_reason(reason)),
+                startup_diagnostics: diagnostics,
+            };
+        }
+    }
+
+    // 2. Generic single-file layout (model.onnx + tokenizer.json + config.json)
     let outcome = moss_onnx::try_load(
         args.model_dir.as_deref(),
         args.ort_dylib.as_deref(),
@@ -168,7 +192,7 @@ fn initialize_engine(args: &CliArgs) -> SidecarState {
             let reason = diagnostics
                 .last()
                 .map(|d| d.message.clone())
-                .unwrap_or_else(|| "MOSS-TTS-Nano を読み込めませんでした".to_string());
+                .unwrap_or_else(|| "TTSモデルを読み込めませんでした".to_string());
             Arc::new(TestToneEngine::with_reason(reason))
         }
     };

@@ -46,7 +46,9 @@ jobs:
       - name: Download ONNX Runtime (Windows x64)
         shell: pwsh
         run: |
-          $version = "1.20.1"
+          # Must match the ABI version required by the `ort` crate
+          # (v2.0.0-rc.10 expects ORT 1.22.x at runtime).
+          $version = "1.22.0"
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip"
           $zip = "$env:RUNNER_TEMP\onnxruntime.zip"
           Invoke-WebRequest -Uri $url -OutFile $zip

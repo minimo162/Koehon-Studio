@@ -184,8 +184,8 @@ native-tts/
 - [x] モデルディレクトリを決める (`--model-dir` / `KOEHON_MODEL_DIR` / 設定画面 UI)。
 - [x] MOSS-TTS-Nano ONNX モデルファイル構成を定義する (README参照: `model.onnx` / `tokenizer.json` / `config.json`)。
 - [x] tokenizer / config / 話者情報の読み込みを実装する (`engine/tokenizer.rs`, `engine/moss_onnx.rs::MossConfig`)。
-- [x] `moss_onnx` エンジンモジュールを作成する (`engine/moss_onnx.rs`)。
-- [ ] 1文のTTS生成を確認する (モデルDLは設定画面から可能に。multi-stage autoregressive pipeline の繋ぎ込みは未実装)。
+- [x] `moss_onnx` エンジンモジュールを作成する (`engine/moss_onnx.rs` 汎用単一ファイル用 + `engine/moss_tts_nano.rs` MOSS 5段 scaffold)。
+- [ ] 1文のTTS生成を確認する (全 ONNX Session + external data の読込までローカル動作確認済。autoregressive 生成ループ本体は未実装、詳細仕様は `docs/MOSS_PIPELINE.md`)。
 - [x] `/synthesize` から実際のWAV生成を呼び出す (エンジン trait 経由で統一)。
 - [x] `voice` 指定を受け取れるようにする (voice → speaker_id の解決込み)。
 - [x] `seed` 指定を受け取れるようにする (`seed_input_name` 経由)。

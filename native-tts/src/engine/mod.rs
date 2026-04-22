@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 pub mod moss_onnx;
+pub mod moss_tts_nano;
 pub mod test_tone;
 pub mod tokenizer;
 

@@ -93,7 +93,12 @@ TTS本体を落とした時点で `modelDirectory` が自動的に `moss-tts-nan
 実行時は autoregressive な Audio Tokenizer + LLM パイプライン:
 text → (SentencePiece) → (global prefill) → (global decode_step loop with KV cache) → audio tokens → (audio-tokenizer decode) → 48kHz 2ch PCM。
 
-現行の `MossOnnxEngine` は単一 `model.onnx` 前提のシンプルな実装なので、この multi-stage パイプラインの繋ぎ込みは今後の改修タスクです。
+現行の実装状況:
+
+- **単一ファイル向けの汎用エンジン** (`engine/moss_onnx.rs`) — `model.onnx` + `tokenizer.json` + `config.json` を前提とするシンプル構成
+- **MOSS-TTS-Nano 向けの 5段エンジン** (`engine/moss_tts_nano.rs`) — `tts_browser_onnx_meta.json` を検出し、5 つの ONNX Session + external data + 18 voices を読み込む scaffold。**autoregressive 生成ループ本体は未実装**
+
+残りの実装は `docs/MOSS_PIPELINE.md` に (inspect 済みの ONNX I/O shapes を含む) 完全な仕様を記載しています。実装順序 / KV cache plumbing / sampling / codec decode までの設計を参照してください。
 
 ### 配置方針
 
