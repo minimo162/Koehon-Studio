@@ -81,7 +81,12 @@ fn main() -> std::io::Result<()> {
                 let state = Arc::clone(&state);
                 thread::spawn(move || {
                     if let Err(error) = handle_connection(stream, state) {
-                        eprintln!("request failed: {error}");
+                        // Ignore idle keep-alive timeouts and abrupt peer closes —
+                        // Webview2 opens speculative connections that never send a
+                        // request, and logging those as errors confuses users.
+                        if !is_benign_connection_error(&error) {
+                            eprintln!("request failed: {error}");
+                        }
                     }
                 });
             }
@@ -398,6 +403,19 @@ fn synthesize(
         elapsed_seconds: started.elapsed().as_secs_f32(),
     };
     write_json(stream, 200, &response)
+}
+
+fn is_benign_connection_error(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        error.kind(),
+        ErrorKind::TimedOut
+            | ErrorKind::WouldBlock
+            | ErrorKind::BrokenPipe
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::ConnectionReset
+            | ErrorKind::UnexpectedEof
+    )
 }
 
 fn error_to_status(error: &SynthError) -> (u16, &'static str) {

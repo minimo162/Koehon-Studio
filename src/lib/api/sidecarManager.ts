@@ -91,7 +91,7 @@ export async function restartSidecar(events: SidecarEvents = {}): Promise<void> 
 async function waitForHealth(events: SidecarEvents): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < 8000) {
-    if (await isHealthy()) {
+    if (await isHealthy(events)) {
       events.onStatus?.("running");
       return;
     }
@@ -101,9 +101,20 @@ async function waitForHealth(events: SidecarEvents): Promise<void> {
   throw new Error("TTS sidecar の /health 確認がタイムアウトしました。");
 }
 
-async function isHealthy(): Promise<boolean> {
+let lastLoggedEngine: string | undefined;
+
+async function isHealthy(events: SidecarEvents = {}): Promise<boolean> {
   try {
     const health = await ttsClient.health();
+    if (health.ok && health.engine !== lastLoggedEngine) {
+      lastLoggedEngine = health.engine;
+      events.onLog?.("info", `TTSエンジン: ${health.engine_name ?? health.engine}`);
+      for (const diag of health.diagnostics ?? []) {
+        const level = diag.severity === "error" ? "error" : "info";
+        const suffix = diag.hint ? ` (${diag.hint})` : "";
+        events.onLog?.(level, `${diag.message}${suffix}`);
+      }
+    }
     return health.ok;
   } catch {
     return false;
