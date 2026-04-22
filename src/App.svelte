@@ -239,6 +239,7 @@
         onStatus: (status) => (sidecarStatus = status),
         onLog: logGeneration
       });
+      await refreshEngineId();
     } catch (error) {
       sidecarStatus = "failed";
       logGeneration("error", error instanceof Error ? error.message : String(error));
@@ -280,22 +281,21 @@
   }
 
   /**
-   * After a manuscript becomes available, move the user forward: if the
-   * engine is ready (real MOSS model), jump straight to the generation view
-   * and kick off a full-project synthesize so the user doesn't have to
-   * navigate three screens and hunt for a button. If the engine isn't ready
-   * (test-tone fallback, no models), land on the manuscript view instead so
-   * they can review content while the setup card is still visible on home.
+   * After a manuscript becomes available, funnel the user into the
+   * generation view and start a full-project synthesize so they don't
+   * have to go hunt for the generate button. `generateAllWithSidecar`
+   * transparently brings the sidecar up first, and `runQueue` skips
+   * chunks that are already marked done when reopening old projects,
+   * so this is safe to fire unconditionally.
    */
   function advanceAfterManuscriptLoaded(): void {
     const hasChapters = get(projectStore).chapters.length > 0;
-    const engineReady = engineId && engineId !== "koehon-test-tone";
-    if (hasChapters && engineReady) {
-      activeView = "generation";
-      void generateAllWithSidecar();
-    } else {
+    if (!hasChapters) {
       activeView = "manuscript";
+      return;
     }
+    activeView = "generation";
+    void generateAllWithSidecar();
   }
 
   function buildCommands(): Command[] {
@@ -1261,6 +1261,13 @@
               <button on:click={restartNativeSidecar}>再起動</button>
             </div>
           </div>
+
+          {#if engineId === "koehon-test-tone"}
+            <div class="banner warning-banner">
+              <strong>テストトーンモードで生成中です。</strong>
+              <span>実音声を得るには、<button class="inline-link" on:click={() => (activeView = "home")}>ホーム画面</button>の「一発セットアップ」からモデルをダウンロードしてください。</span>
+            </div>
+          {/if}
 
           <div class="generation-meter" class:is-running={$generationStateStore.status === "running"}>
             <div class="meter-row">
