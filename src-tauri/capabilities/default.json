@@ -4,6 +4,11 @@
   "description": "Default desktop permissions",
   "windows": ["main"],
   "permissions": [
+    "core:default",
+    "core:path:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
     "dialog:default",
     "fs:default",
     "fs:allow-exists",
@@ -26,16 +31,7 @@
         {
           "name": "../native-tts/sidecars/koehon-tts-sidecar",
           "sidecar": true,
-          "args": [
-            "--host",
-            { "validator": "^[0-9.:]+$" },
-            "--model-dir",
-            { "validator": "^[^\\n]*$" },
-            "--ort-dylib",
-            { "validator": "^[^\\n]*$" },
-            "--cpu-threads",
-            { "validator": "^[0-9]+$" }
-          ]
+          "args": true
         }
       ]
     },
