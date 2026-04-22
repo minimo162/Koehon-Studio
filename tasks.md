@@ -185,7 +185,7 @@ native-tts/
 - [x] MOSS-TTS-Nano ONNX モデルファイル構成を定義する (README参照: `model.onnx` / `tokenizer.json` / `config.json`)。
 - [x] tokenizer / config / 話者情報の読み込みを実装する (`engine/tokenizer.rs`, `engine/moss_onnx.rs::MossConfig`)。
 - [x] `moss_onnx` エンジンモジュールを作成する (`engine/moss_onnx.rs`)。
-- [ ] 1文のTTS生成を確認する (実モデル入手待ち。テストトーンでフォールバック動作は確認済み)。
+- [ ] 1文のTTS生成を確認する (モデルDLは設定画面から可能に。multi-stage autoregressive pipeline の繋ぎ込みは未実装)。
 - [x] `/synthesize` から実際のWAV生成を呼び出す (エンジン trait 経由で統一)。
 - [x] `voice` 指定を受け取れるようにする (voice → speaker_id の解決込み)。
 - [x] `seed` 指定を受け取れるようにする (`seed_input_name` 経由)。
@@ -370,14 +370,12 @@ native-tts/
 
 ## 27. モデル管理
 
-- [ ] モデル保存先を appData 配下にする。
-- [ ] モデル有無チェックを実装する。
-- [ ] モデル未配置時の案内を表示する。
-- [ ] 将来的なモデルダウンロード機能の仕様を決める。
-- [ ] モデルディレクトリを設定画面で開けるようにする。
-- [ ] モデル破損時の再配置導線を実装する。
-
-初期段階ではモデルの自動ダウンロードは必須ではない。手動配置でもよい。
+- [x] モデル保存先を appData 配下にする (設定画面の「モデルディレクトリ」で指定、未指定時は appData 配下推奨を README に記載)。
+- [x] モデル有無チェックを実装する (sidecar 起動時に `model.missing` / `tokenizer.missing` / `config.invalid` を `/health` で報告)。
+- [x] モデル未配置時の案内を表示する (`engine.test_tone_active` 診断 + 設定画面ダウンロードパネル)。
+- [x] モデルダウンロード機能を実装する (Hugging Face multi-file streaming, MOSS-TTS-Nano / Audio Tokenizer のワンクリックDL)。
+- [x] モデルディレクトリを設定画面で開けるようにする (ディレクトリ選択ダイアログ実装済)。
+- [ ] モデル破損時の再配置導線を実装する (再ダウンロードボタンで上書き取得可、破損検知は未実装)。
 
 ## 28. テスト
 

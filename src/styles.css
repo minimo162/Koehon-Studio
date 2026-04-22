@@ -1505,6 +1505,95 @@ input:disabled {
   font-style: italic;
 }
 
+/* ——————— Download panel ——————— */
+
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.4rem;
+}
+
+.download-card {
+  background: var(--card-alt);
+  border: 1px solid var(--hair-soft);
+  border-radius: 2px;
+  padding: 1rem 1.1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  justify-content: space-between;
+}
+
+.download-card.complete {
+  border-color: var(--success);
+}
+
+.download-card strong {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  display: block;
+}
+
+.download-card p {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  margin-top: 0.4rem;
+}
+
+.download-card code {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: var(--card);
+  padding: 0.15rem 0.4rem;
+  border-radius: 2px;
+  margin-top: 0.6rem;
+  border: 1px solid var(--hair-soft);
+}
+
+.download-progress {
+  margin-top: 1rem;
+  background: var(--card);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.download-progress .meter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.download-progress strong {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  letter-spacing: 0.02em;
+}
+
+.download-progress span {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+
+.download-progress small {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
 /* ——————— Toast ——————— */
 
 .toast {

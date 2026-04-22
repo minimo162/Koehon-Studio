@@ -62,6 +62,39 @@ node scripts/build-sidecar.mjs --release --target x86_64-pc-windows-msvc
 
 ## ONNX Runtime と MOSS-TTS-Nano モデル
 
+### 自動ダウンロード
+
+設定画面の「モデルダウンロード」パネルから、Hugging Face の公開リポジトリを 1クリックで取得できます:
+
+| リポジトリ | サイズ | 用途 |
+|---|---:|---|
+| [OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX) | 約672MB | TTS本体 (prefill / decode_step / local_decoder / local_cached_step / local_fixed_sampled_frame の 5-stage ONNX + external data + tokenizer.model) |
+| [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) | 約45MB | 波形 ↔ 音声トークン変換 ONNX |
+
+ダウンロード先は `設定画面 → モデルディレクトリ` 配下に `moss-tts-nano/` / `moss-audio-tokenizer/` のサブフォルダとして作成されます。
+TTS本体を落とした時点で `modelDirectory` が自動的に `moss-tts-nano/` を指すように更新されます。
+
+### MOSS-TTS-Nano-100M-ONNX の構成
+
+```text
+<model-dir>/moss-tts-nano/
+├── moss_tts_prefill.onnx                  Global transformer prefill graph
+├── moss_tts_decode_step.onnx              Global transformer decode-step (KV cache)
+├── moss_tts_local_decoder.onnx            Local decoder graph
+├── moss_tts_local_cached_step.onnx        Local cached-step graph
+├── moss_tts_local_fixed_sampled_frame.onnx Local frame sampling graph
+├── moss_tts_global_shared.data            External weights (global)
+├── moss_tts_local_shared.data             External weights (local)
+├── tokenizer.model                        SentencePiece tokenizer
+├── tts_browser_onnx_meta.json             ONNX runtime metadata
+└── browser_poc_manifest.json              Browser integration manifest
+```
+
+実行時は autoregressive な Audio Tokenizer + LLM パイプライン:
+text → (SentencePiece) → (global prefill) → (global decode_step loop with KV cache) → audio tokens → (audio-tokenizer decode) → 48kHz 2ch PCM。
+
+現行の `MossOnnxEngine` は単一 `model.onnx` 前提のシンプルな実装なので、この multi-stage パイプラインの繋ぎ込みは今後の改修タスクです。
+
 ### 配置方針
 
 | 成果物 | 配置先 | 備考 |

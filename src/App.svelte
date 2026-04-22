@@ -7,6 +7,13 @@
   import { ensureSidecar, restartSidecar, stopSidecar, type SidecarStatus } from "./lib/api/sidecarManager";
   import { openProjectPath, openProjectWithDialog, saveProjectWithDialog } from "./lib/project/projectPersistence";
   import type { ProjectSettings } from "./lib/project/projectTypes";
+  import {
+    downloadHuggingFaceRepo,
+    MODEL_PRESETS,
+    ModelDownloadError,
+    planDownload,
+    type DownloadProgress
+  } from "./lib/api/modelDownloader";
   import { buildPrompt, sourceTypeInstructions, type PromptOptions } from "./lib/prompt/promptTemplates";
   import { appSettingsStore, validateProjectSettings } from "./lib/stores/appSettings";
   import { generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
@@ -48,6 +55,11 @@
   let commandIndex = 0;
   let chapterQuery = "";
   let sidebarCollapsed = false;
+  let downloadProgress: DownloadProgress | undefined;
+  let downloadError = "";
+  let downloadRunning = false;
+  let downloadAbort: AbortController | undefined;
+  let downloadedPresets = new Set<string>();
 
   type Command = {
     id: string;
@@ -533,6 +545,79 @@
   async function chooseOutputDirectory(): Promise<void> {
     const selected = await selectDirectory("出力ディレクトリを選択");
     if (selected) updateSetting("outputDirectory", selected);
+  }
+
+  async function downloadPreset(presetId: string): Promise<void> {
+    if (!nativeFileApi) {
+      downloadError = "ダウンロードは Tauri アプリ上でのみ利用できます。";
+      return;
+    }
+    const preset = MODEL_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    const baseDir = get(appSettingsStore).modelDirectory?.trim();
+    if (!baseDir) {
+      downloadError = "先に設定画面で「モデルディレクトリ」を指定してください。";
+      return;
+    }
+    const targetDir = joinSubdir(baseDir, preset.subdir);
+    downloadError = "";
+    downloadRunning = true;
+    downloadAbort = new AbortController();
+    downloadProgress = {
+      stage: "listing",
+      repo: preset.repo,
+      fileIndex: 0,
+      fileCount: 0,
+      fileBytes: 0,
+      fileTotalBytes: 0,
+      overallBytes: 0,
+      overallTotalBytes: 0
+    };
+    logGeneration("info", `${preset.label} のダウンロードを開始します → ${targetDir}`);
+    try {
+      const plan = await planDownload(preset.repo, targetDir);
+      downloadProgress = { ...downloadProgress, fileCount: plan.files.length, overallTotalBytes: plan.totalBytes };
+      await downloadHuggingFaceRepo(plan, {
+        signal: downloadAbort.signal,
+        onProgress: (progress) => (downloadProgress = progress)
+      });
+      downloadedPresets = new Set([...downloadedPresets, preset.id]);
+      logGeneration("info", `${preset.label} をダウンロードしました。`);
+      showNotification(`${preset.label} をダウンロードしました。`);
+      if (preset.id === "moss-tts-nano") {
+        updateSetting("modelDirectory", targetDir);
+      }
+    } catch (error) {
+      const message = error instanceof ModelDownloadError ? error.message : error instanceof Error ? error.message : String(error);
+      downloadError = message;
+      logGeneration("error", `ダウンロード失敗: ${message}`);
+      showNotification(`ダウンロードに失敗しました: ${message}`, "error");
+    } finally {
+      downloadRunning = false;
+      downloadAbort = undefined;
+    }
+  }
+
+  function cancelDownload(): void {
+    downloadAbort?.abort();
+  }
+
+  function joinSubdir(base: string, child: string): string {
+    const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
+    const trimmed = base.endsWith(sep) ? base.slice(0, -1) : base;
+    return `${trimmed}${sep}${child}`;
+  }
+
+  function formatBytes(n: number): string {
+    if (!n || n < 1024) return `${n ?? 0} B`;
+    const units = ["KB", "MB", "GB"];
+    let size = n / 1024;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit += 1;
+    }
+    return `${size.toFixed(unit >= 2 ? 2 : 1)} ${units[unit]}`;
   }
 
   function toggleChapterNarration(chapterId: string, includeInNarration: boolean): void {
@@ -1274,6 +1359,62 @@
             <label class="path-field">モデルディレクトリ<span><input value={$appSettingsStore.modelDirectory} on:input={(event) => updateSetting("modelDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseModelDirectory}>選択</button></span></label>
             <label class="path-field">出力ディレクトリ<span><input value={$appSettingsStore.outputDirectory} on:input={(event) => updateSetting("outputDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseOutputDirectory}>選択</button></span></label>
           </div>
+        </div>
+
+        <div class="settings-section">
+          <header>
+            <h3>モデルダウンロード</h3>
+            <p>MOSS-TTS-Nano と音声トークナイザを Hugging Face から直接取得します。ダウンロード先は「モデルディレクトリ」配下の各サブフォルダです。</p>
+          </header>
+          {#if !$appSettingsStore.modelDirectory?.trim()}
+            <p class="banner error-banner">先に上の「モデルディレクトリ」を設定してください。</p>
+          {/if}
+          {#if downloadError}<p class="error-banner">{downloadError}</p>{/if}
+          <div class="download-grid">
+            {#each MODEL_PRESETS as preset}
+              <article class="download-card" class:complete={downloadedPresets.has(preset.id)}>
+                <div>
+                  <strong>{preset.label}</strong>
+                  <p>{preset.description}</p>
+                  <code>{preset.repo}</code>
+                </div>
+                <div class="actions">
+                  <button
+                    class="primary"
+                    disabled={downloadRunning || !nativeFileApi || !$appSettingsStore.modelDirectory?.trim()}
+                    on:click={() => downloadPreset(preset.id)}
+                  >
+                    {downloadedPresets.has(preset.id) ? "再ダウンロード" : "ダウンロード"}
+                  </button>
+                </div>
+              </article>
+            {/each}
+          </div>
+          {#if downloadRunning && downloadProgress}
+            {@const overallPct = downloadProgress.overallTotalBytes > 0 ? Math.round((downloadProgress.overallBytes / downloadProgress.overallTotalBytes) * 100) : 0}
+            <div class="download-progress">
+              <div class="meter-row">
+                <div>
+                  <strong>{downloadProgress.repo}</strong>
+                  <span class="dot-sep">·</span>
+                  <span>
+                    {downloadProgress.stage === "listing" ? "ファイル一覧を取得中" : downloadProgress.currentFile ?? "準備中"}
+                  </span>
+                </div>
+                <div>
+                  <span>{formatBytes(downloadProgress.overallBytes)} / {formatBytes(downloadProgress.overallTotalBytes)} ({overallPct}%)</span>
+                  <button on:click={cancelDownload}>キャンセル</button>
+                </div>
+              </div>
+              <div class="progress"><span style={`width: ${overallPct}%`}></span></div>
+              <small>
+                {downloadProgress.fileIndex + (downloadProgress.stage === "complete" ? 0 : 1)} / {downloadProgress.fileCount} ファイル
+                {#if downloadProgress.fileTotalBytes > 0}
+                  · 現在ファイル {formatBytes(downloadProgress.fileBytes)} / {formatBytes(downloadProgress.fileTotalBytes)}
+                {/if}
+              </small>
+            </div>
+          {/if}
         </div>
 
         <div class="settings-section">
