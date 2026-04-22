@@ -1,0 +1,23 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="paper" cx="28%" cy="22%" r="95%">
+      <stop offset="0%" stop-color="#faf7ed"/>
+      <stop offset="60%" stop-color="#f1ecdd"/>
+      <stop offset="100%" stop-color="#e6dfc9"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#paper)"/>
+  <text x="512" y="790"
+        font-family="Noto Serif CJK JP, Shippori Mincho, serif"
+        font-weight="900"
+        font-size="820"
+        fill="#1c1a16"
+        text-anchor="middle">声</text>
+  <rect x="768" y="148" width="120" height="120" fill="#8a2e1e"/>
+  <text x="828" y="238"
+        font-family="Noto Serif CJK JP, serif"
+        font-weight="700"
+        font-size="86"
+        fill="#f4f0e6"
+        text-anchor="middle">本</text>
+</svg>
