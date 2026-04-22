@@ -137,12 +137,43 @@ fn parse_args() -> CliArgs {
             other => eprintln!("unknown argument ignored: {other}"),
         }
     }
+    let host = enforce_loopback(&host);
+    let cpu_threads = cpu_threads.clamp(1, 64);
     CliArgs {
         host,
         model_dir,
         codec_dir,
         ort_dylib,
         cpu_threads,
+    }
+}
+
+/// Refuse to bind to non-loopback interfaces. Silently downgrades external
+/// bind targets to the default loopback address so a misconfigured caller
+/// cannot accidentally expose the sidecar on the LAN.
+fn enforce_loopback(host: &str) -> String {
+    let trimmed = host.trim();
+    let (bind_host, port) = trimmed
+        .rsplit_once(':')
+        .map(|(h, p)| (h, p))
+        .unwrap_or((trimmed, "18083"));
+    let bind_host = bind_host.trim_matches(|c| c == '[' || c == ']');
+    let is_loopback = match bind_host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback(),
+        Ok(std::net::IpAddr::V6(ip)) => ip.is_loopback(),
+        Err(_) => matches!(bind_host, "localhost" | "" | "loopback"),
+    };
+    if is_loopback && port.parse::<u16>().is_ok() {
+        if trimmed.is_empty() {
+            DEFAULT_ADDR.to_string()
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        eprintln!(
+            "refusing non-loopback bind target {trimmed:?}; using {DEFAULT_ADDR} instead"
+        );
+        DEFAULT_ADDR.to_string()
     }
 }
 
@@ -301,7 +332,20 @@ fn synthesize(
         seed: request.seed,
     };
 
-    let output_path = normalize_output_path(&request.output_path);
+    let output_path = match validate_output_path(&request.output_path) {
+        Ok(path) => path,
+        Err(reason) => {
+            return write_json(
+                stream,
+                400,
+                &ErrorResponse {
+                    ok: false,
+                    error: reason,
+                    code: Some("synth.invalid_output_path".to_string()),
+                },
+            );
+        }
+    };
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -366,6 +410,48 @@ fn error_to_status(error: &SynthError) -> (u16, &'static str) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enforce_loopback_accepts_ipv4_loopback() {
+        assert_eq!(enforce_loopback("127.0.0.1:18083"), "127.0.0.1:18083");
+        assert_eq!(enforce_loopback("localhost:1234"), "localhost:1234");
+    }
+
+    #[test]
+    fn enforce_loopback_rejects_external_bind() {
+        assert_eq!(enforce_loopback("0.0.0.0:18083"), DEFAULT_ADDR);
+        assert_eq!(enforce_loopback("192.168.1.5:18083"), DEFAULT_ADDR);
+    }
+
+    #[test]
+    fn enforce_loopback_accepts_ipv6_loopback() {
+        assert_eq!(enforce_loopback("[::1]:18083"), "[::1]:18083");
+    }
+
+    #[test]
+    fn validate_output_path_rejects_parent_segments() {
+        assert!(validate_output_path("../evil.wav").is_err());
+        assert!(validate_output_path("a/../b.wav").is_err());
+    }
+
+    #[test]
+    fn validate_output_path_requires_wav_extension() {
+        assert!(validate_output_path("out.mp3").is_err());
+        assert!(validate_output_path("out").is_err());
+        assert!(validate_output_path("out.wav").is_ok());
+    }
+
+    #[test]
+    fn validate_output_path_rejects_empty_or_null() {
+        assert!(validate_output_path("").is_err());
+        assert!(validate_output_path("   ").is_err());
+        assert!(validate_output_path("file\0name.wav").is_err());
+    }
+}
+
 fn health_response(state: &SidecarState) -> HealthResponse {
     let mut diagnostics = state.startup_diagnostics.clone();
     diagnostics.extend(state.engine.diagnostics());
@@ -388,6 +474,33 @@ fn normalize_output_path(path: &str) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(candidate)
     }
+}
+
+/// Reject output paths that look suspicious before we create directories.
+/// Accepts only `.wav` files, disallows `..` segments, and refuses empty input.
+fn validate_output_path(raw: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("output_path が空です。".to_string());
+    }
+    if trimmed.contains('\0') {
+        return Err("output_path に無効な文字が含まれています。".to_string());
+    }
+    let candidate = PathBuf::from(trimmed);
+    for component in candidate.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err("output_path に .. を含めることはできません。".to_string());
+        }
+    }
+    let has_wav_ext = candidate
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("wav"))
+        .unwrap_or(false);
+    if !has_wav_ext {
+        return Err("output_path は .wav ファイルを指定してください。".to_string());
+    }
+    Ok(normalize_output_path(trimmed))
 }
 
 fn write_pcm16_wav(
