@@ -23,7 +23,17 @@
       "allow": [
         {
           "name": "../native-tts/sidecars/koehon-tts-sidecar",
-          "sidecar": true
+          "sidecar": true,
+          "args": [
+            "--host",
+            { "validator": "^[0-9.:]+$" },
+            "--model-dir",
+            { "validator": "^[^\\n]*$" },
+            "--ort-dylib",
+            { "validator": "^[^\\n]*$" },
+            "--cpu-threads",
+            { "validator": "^[0-9]+$" }
+          ]
         }
       ]
     },

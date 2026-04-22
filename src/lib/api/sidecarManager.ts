@@ -1,4 +1,6 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { get } from "svelte/store";
+import { appSettingsStore } from "../stores/appSettings";
 import { isTauriRuntime } from "./fileAccess";
 import { ttsClient } from "./ttsClient";
 
@@ -12,6 +14,18 @@ type SidecarEvents = {
 let child: Child | undefined;
 let starting: Promise<void> | undefined;
 const sidecarProgram = "../native-tts/sidecars/koehon-tts-sidecar";
+
+function buildArgs(): string[] {
+  const settings = get(appSettingsStore);
+  const args: string[] = [];
+  if (settings.modelDirectory && settings.modelDirectory.trim()) {
+    args.push("--model-dir", settings.modelDirectory.trim());
+  }
+  if (settings.cpuThreads && settings.cpuThreads > 0) {
+    args.push("--cpu-threads", String(settings.cpuThreads));
+  }
+  return args;
+}
 
 export async function ensureSidecar(events: SidecarEvents = {}): Promise<void> {
   if (await isHealthy()) {
@@ -36,11 +50,12 @@ export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
   }
 
   events.onStatus?.("starting");
-  const command = Command.sidecar(sidecarProgram);
+  const args = buildArgs();
+  const command = Command.sidecar(sidecarProgram, args);
   command.stdout.on("data", (line) => events.onLog?.("info", String(line).trim()));
   command.stderr.on("data", (line) => events.onLog?.("error", String(line).trim()));
   child = await command.spawn();
-  events.onLog?.("info", "TTS sidecar を起動しました。");
+  events.onLog?.("info", `TTS sidecar を起動しました (${args.join(" ") || "既定設定"})。`);
   await waitForHealth(events);
 }
 

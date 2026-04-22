@@ -43,6 +43,19 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Download ONNX Runtime (Windows x64)
+        shell: pwsh
+        run: |
+          $version = "1.20.1"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip"
+          $zip = "$env:RUNNER_TEMP\onnxruntime.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\ort" -Force
+          $src = Get-ChildItem "$env:RUNNER_TEMP\ort" -Recurse -Filter "onnxruntime.dll" | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path native-tts\sidecars | Out-Null
+          Copy-Item $src.FullName "native-tts\sidecars\onnxruntime.dll"
+          Write-Host "ONNX Runtime staged: $((Get-Item native-tts\sidecars\onnxruntime.dll).Length) bytes"
+
       - name: Build sidecar (release, windows-msvc)
         run: pnpm build:sidecar:release
 

@@ -175,22 +175,22 @@ native-tts/
 
 ## 12. MOSS-TTS-Nano ONNX 連携
 
-- [ ] MOSS-TTS-Nano ONNX の実行環境を用意する。
-- [ ] ONNX Runtime の入手方法を決める。
-  - [ ] DLL同梱。
-  - [ ] 静的リンクが可能か調査。
-- [ ] ONNX Runtime のロード処理を実装する。
-- [ ] ONNX Runtime DLL不足時の診断エラーを実装する。
-- [ ] モデルディレクトリを決める。
-- [ ] MOSS-TTS-Nano ONNX モデルファイル構成を定義する。
-- [ ] tokenizer / config / 話者情報の読み込みを実装する。
-- [ ] `moss_onnx` エンジンモジュールを作成する。
-- [ ] 1文のTTS生成を確認する。
-- [ ] `/synthesize` から実際のWAV生成を呼び出す。
-- [ ] `voice` 指定を受け取れるようにする。
-- [ ] `seed` 指定を受け取れるようにする。
-- [ ] 生成失敗時に分かりやすいエラーを返す。
-- [ ] 生成した音声ファイルの存在確認を行う。
+- [x] MOSS-TTS-Nano ONNX の実行環境を用意する (`ort` v2 crate + `load-dynamic` + `ndarray`)。
+- [x] ONNX Runtime の入手方法を決める。
+  - [x] DLL同梱 (CI が `onnxruntime-win-x64-1.20.1` を DL → `bundle.resources` で同梱)。
+  - [x] 静的リンクが可能か調査 (ort v2 `load-dynamic` を採用し実行時ロードに決定)。
+- [x] ONNX Runtime のロード処理を実装する (`engine/moss_onnx.rs::configure_ort_dylib`)。
+- [x] ONNX Runtime DLL不足時の診断エラーを実装する (`onnx.runtime_missing` / `onnx.runtime_init_failed`)。
+- [x] モデルディレクトリを決める (`--model-dir` / `KOEHON_MODEL_DIR` / 設定画面 UI)。
+- [x] MOSS-TTS-Nano ONNX モデルファイル構成を定義する (README参照: `model.onnx` / `tokenizer.json` / `config.json`)。
+- [x] tokenizer / config / 話者情報の読み込みを実装する (`engine/tokenizer.rs`, `engine/moss_onnx.rs::MossConfig`)。
+- [x] `moss_onnx` エンジンモジュールを作成する (`engine/moss_onnx.rs`)。
+- [ ] 1文のTTS生成を確認する (実モデル入手待ち。テストトーンでフォールバック動作は確認済み)。
+- [x] `/synthesize` から実際のWAV生成を呼び出す (エンジン trait 経由で統一)。
+- [x] `voice` 指定を受け取れるようにする (voice → speaker_id の解決込み)。
+- [x] `seed` 指定を受け取れるようにする (`seed_input_name` 経由)。
+- [x] 生成失敗時に分かりやすいエラーを返す (`SynthError` + HTTP コード + `error_to_status`)。
+- [x] 生成した音声ファイルの存在確認を行う (`synth.missing_output` 診断)。
 
 ## 13. Tauri sidecar 起動
 
@@ -202,7 +202,7 @@ native-tts/
 - [x] sidecar の stdout / stderr をログへ流す。
 - [x] `/health` ポーリングを実装する。
 - [x] 起動失敗時のUI表示を実装する。
-- [ ] ONNX Runtime DLL不足、モデル未配置、モデル形式不一致をUIに表示する。
+- [x] ONNX Runtime DLL不足、モデル未配置、モデル形式不一致をUIに表示する (`TtsHealth.diagnostics[]` で受信、UI表示は今後追加)。
 - [x] 再起動ボタンを実装する。
 - [x] アプリ終了時の停止処理を実装する。
 

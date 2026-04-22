@@ -1,7 +1,15 @@
 export type TtsHealth = {
   ok: boolean;
   engine: string;
+  engine_name?: string;
+  sample_rate?: number;
   voices: Array<{ id: string; name: string }>;
+  diagnostics?: Array<{
+    severity: "info" | "warning" | "error";
+    code: string;
+    message: string;
+    hint?: string | null;
+  }>;
 };
 
 export type SynthesizeRequest = {

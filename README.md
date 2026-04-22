@@ -60,21 +60,71 @@ native-tts/sidecars/koehon-tts-sidecar-aarch64-apple-darwin
 node scripts/build-sidecar.mjs --release --target x86_64-pc-windows-msvc
 ```
 
-## ONNX Runtime と MOSS-TTS-Nano モデルの配置方針
+## ONNX Runtime と MOSS-TTS-Nano モデル
 
-初期版では以下の方針を採用しています (tasks 26 / 27 の決定):
+### 配置方針
 
-| 成果物 | 配置先 | 理由 |
+| 成果物 | 配置先 | 備考 |
 |---|---|---|
-| ONNX Runtime DLL (`onnxruntime.dll` など) | インストール先 `resources/runtime/` に sidecar と同梱予定 | バージョン固定を保証したいため |
-| MOSS-TTS-Nano ONNX モデル | ユーザー環境の `%APPDATA%/Koehon Studio/models/moss-tts-nano/` | 数百MBあるためインストーラに入れずにユーザー配置または将来の初回ダウンロードに任せる |
+| ONNX Runtime DLL (`onnxruntime.dll` 等) | インストーラに同梱 (`bundle.resources`)、Tauri app 実行ファイルと同一ディレクトリ | Windows ビルドは CI が `onnxruntime-win-x64-1.20.1` を自動DL |
+| MOSS-TTS-Nano モデルファイル | ユーザー環境の任意ディレクトリ (推奨: `%APPDATA%/Koehon Studio/models/moss-tts-nano/`) | 設定画面 → モデルディレクトリで指定 |
 | プロジェクト / 生成音声 / ログ | `%APPDATA%/Koehon Studio/` 配下 | |
 
-sidecar は起動時に model ディレクトリと ONNX Runtime の両方を診断し、
-欠落していれば `/health` レスポンスにエラー理由を含める想定です (tasks 13 の続き)。
+### モデルディレクトリの期待構成
 
-配置が決まるまで、現在同梱されている sidecar は「テストトーンを生成するダミー実装」のため、
-インストーラを配っても Python や ONNX Runtime は不要で、UIフロー全体を確認できます。
+sidecar は `--model-dir` で渡されたディレクトリから以下のファイルを探します:
+
+```text
+<model-dir>/
+├── model.onnx         MOSS-TTS-Nano 互換の ONNX ファイル
+├── tokenizer.json     { "vocab", "unknown_id", "bos_id", "eos_id", "mode" }
+└── config.json        { "sample_rate", "channels", "voices", 入出力名 }
+```
+
+#### tokenizer.json
+
+```json
+{
+  "vocab": { "a": 0, "い": 1, "う": 2 },
+  "unknown_id": 0,
+  "bos_id": 1,
+  "eos_id": 2,
+  "mode": "chars"
+}
+```
+
+`mode: "chars"` は「1文字=1トークン」のパススルー実装。本番用の G2P / 音素化が必要な場合は、
+利用する TTS モデルに合わせて呼び出し側で事前変換するか、将来 `mode: "phoneme"` を追加してください。
+
+#### config.json (すべて省略可能)
+
+```json
+{
+  "sample_rate": 24000,
+  "channels": 1,
+  "text_input_name": "input_ids",
+  "speaker_input_name": "speaker_id",
+  "seed_input_name": null,
+  "audio_output_name": "audio",
+  "voices": [
+    { "id": "narrator", "name": "ナレーター", "speaker_id": 0 },
+    { "id": "calm",     "name": "穏やか",     "speaker_id": 1 }
+  ]
+}
+```
+
+#### モデル I/O の期待
+
+- 入力 `input_ids`: `int64 [1, seq]` — tokenizer の出力
+- 入力 `speaker_id` (あれば): `int64 [1]` — 選択 voice の `speaker_id` を渡す
+- 入力 `seed` (あれば): `int64 [1]` — 乱数シード
+- 出力 `audio`: `float32 [1, samples]` または `[samples]` — `-1.0 ... 1.0` のモノラル PCM
+
+### モデルが無いとき
+
+sidecar は `/health` で `engine=koehon-test-tone` を返し、`diagnostics` に
+`model.dir_unset` / `model.missing` / `tokenizer.missing` / `onnx.runtime_missing`
+のいずれかを含めます。UI はこの診断をログ画面で表示し、生成はテストトーンを出力します。
 
 ## 実装済みの範囲
 

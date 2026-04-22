@@ -34,6 +34,10 @@
       "icons/icon.ico"
     ],
     "externalBin": ["../native-tts/sidecars/koehon-tts-sidecar"],
+    "resources": [
+      "../native-tts/sidecars/onnxruntime*.dll",
+      "../native-tts/sidecars/libonnxruntime*"
+    ],
     "windows": {
       "nsis": {
         "installMode": "both"
