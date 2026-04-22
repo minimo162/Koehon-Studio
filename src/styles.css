@@ -437,6 +437,83 @@ input[type="file"] {
   gap: 1.4rem;
 }
 
+.setup-card {
+  background: linear-gradient(135deg, var(--accent-soft), var(--card));
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  padding: 1.6rem 1.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.setup-card .setup-copy small {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.7rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.setup-card .setup-copy h3 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.2rem;
+}
+
+.setup-card .setup-copy p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.setup-card .setup-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.setup-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.setup-progress .meter-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.setup-progress small {
+  color: var(--ink-faint);
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+}
+
+.auto-setup-inline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  background: var(--card-alt);
+  border: 1px solid var(--hair);
+  border-radius: 2px;
+  margin-bottom: 0.6rem;
+}
+
+.auto-setup-inline strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.auto-setup-inline p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+}
+
 .hero {
   background: var(--card);
   border: 1px solid var(--hair);

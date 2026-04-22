@@ -1,3 +1,4 @@
+import { appDataDir, join } from "@tauri-apps/api/path";
 import { create, mkdir } from "@tauri-apps/plugin-fs";
 
 import { isTauriRuntime } from "./fileAccess";
@@ -197,3 +198,73 @@ export const MODEL_PRESETS = [
   }
 ] as const;
 export type ModelPresetId = (typeof MODEL_PRESETS)[number]["id"];
+
+export type AutoSetupProgress = {
+  presetId: ModelPresetId;
+  presetLabel: string;
+  stepIndex: number;
+  stepCount: number;
+  detail: DownloadProgress;
+};
+
+export type AutoSetupResult = {
+  modelDirectory: string;
+  codecDirectory: string;
+};
+
+/**
+ * Resolve the default models root under the app data directory, creating
+ * parents as needed. Returns an absolute path like
+ * `<appData>/models`.
+ */
+export async function defaultModelsRoot(): Promise<string> {
+  const base = await appDataDir();
+  return join(base, "models");
+}
+
+/**
+ * Download every MODEL_PRESET into `<appData>/models/<subdir>` and report
+ * combined progress to the caller. Returns the paths that should be written
+ * into user settings (modelDirectory + codecDirectory) so the sidecar can
+ * pick them up on its next restart.
+ */
+export async function autoSetupModels(options: {
+  signal?: AbortSignal;
+  onProgress?: (progress: AutoSetupProgress) => void;
+} = {}): Promise<AutoSetupResult> {
+  if (!isTauriRuntime()) {
+    throw new ModelDownloadError("自動セットアップは Tauri アプリ上でのみ利用できます。");
+  }
+
+  const root = await defaultModelsRoot();
+  await mkdir(root, { recursive: true });
+
+  const resolved: Record<ModelPresetId, string> = {
+    "moss-tts-nano": "",
+    "moss-audio-tokenizer": ""
+  };
+
+  for (let index = 0; index < MODEL_PRESETS.length; index += 1) {
+    const preset = MODEL_PRESETS[index];
+    const targetDir = await join(root, preset.subdir);
+    resolved[preset.id] = targetDir;
+
+    const plan = await planDownload(preset.repo, targetDir);
+    await downloadHuggingFaceRepo(plan, {
+      signal: options.signal,
+      onProgress: (detail) =>
+        options.onProgress?.({
+          presetId: preset.id,
+          presetLabel: preset.label,
+          stepIndex: index,
+          stepCount: MODEL_PRESETS.length,
+          detail
+        })
+    });
+  }
+
+  return {
+    modelDirectory: resolved["moss-tts-nano"],
+    codecDirectory: resolved["moss-audio-tokenizer"]
+  };
+}

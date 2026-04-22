@@ -9,15 +9,18 @@
   import { openProjectPath, openProjectWithDialog, saveProjectWithDialog } from "./lib/project/projectPersistence";
   import type { ProjectSettings } from "./lib/project/projectTypes";
   import {
+    autoSetupModels,
     downloadHuggingFaceRepo,
     MODEL_PRESETS,
     ModelDownloadError,
     planDownload,
+    type AutoSetupProgress,
     type DownloadProgress
   } from "./lib/api/modelDownloader";
   import { buildPrompt, sourceTypeInstructions, type PromptOptions } from "./lib/prompt/promptTemplates";
   import { appSettingsStore, validateProjectSettings } from "./lib/stores/appSettings";
   import { clearGenerationLogs, formatGenerationLogs, generationLogsStore, generationStateStore, chunkStateStore, checkSidecar, clearChunkAudio, generateAll, generateChapter, logGeneration, regenerateChunk, regenerateFailedChunks, resetGenerationState, restoreChunkStates, stopGeneration } from "./lib/stores/generationQueue";
+  import { ttsClient } from "./lib/api/ttsClient";
   import { manuscriptStore, markProjectSaved, markSaved, markSavedAs, reparseManuscript, restoreManuscriptProject, setChapterNarration, setManuscript, updateManuscript } from "./lib/stores/manuscriptStore";
   import { projectStore } from "./lib/stores/projectStore";
   import { recentFilesStore, rememberRecentFile } from "./lib/stores/recentFiles";
@@ -61,6 +64,8 @@
   let downloadRunning = false;
   let downloadAbort: AbortController | undefined;
   let downloadedPresets = new Set<string>();
+  let autoSetupProgress: AutoSetupProgress | undefined;
+  let engineId: string | undefined;
 
   type Command = {
     id: string;
@@ -177,16 +182,27 @@
     ensureSidecar({
       onStatus: (status) => (sidecarStatus = status),
       onLog: logGeneration
-    }).catch((error) => {
-      sidecarStatus = "failed";
-      logGeneration("error", error instanceof Error ? error.message : String(error));
-    });
+    })
+      .then(refreshEngineId)
+      .catch((error) => {
+        sidecarStatus = "failed";
+        logGeneration("error", error instanceof Error ? error.message : String(error));
+      });
     return () => {
       stopSidecar({ onLog: logGeneration }).catch((error) => {
         logGeneration("error", error instanceof Error ? error.message : String(error));
       });
     };
   });
+
+  async function refreshEngineId(): Promise<void> {
+    try {
+      const health = await ttsClient.health();
+      engineId = health.ok ? health.engine : undefined;
+    } catch {
+      engineId = undefined;
+    }
+  }
 
   async function loadPersistedSettings(): Promise<void> {
     settingsError = "";
@@ -615,6 +631,54 @@
     downloadAbort?.abort();
   }
 
+  async function runAutoSetup(): Promise<void> {
+    if (!nativeFileApi) {
+      downloadError = "自動セットアップは Tauri アプリ上でのみ利用できます。";
+      return;
+    }
+    downloadError = "";
+    downloadRunning = true;
+    downloadAbort = new AbortController();
+    autoSetupProgress = undefined;
+    logGeneration("info", "モデル自動セットアップを開始します…");
+    try {
+      const result = await autoSetupModels({
+        signal: downloadAbort.signal,
+        onProgress: (progress) => {
+          autoSetupProgress = progress;
+          downloadProgress = progress.detail;
+        }
+      });
+      appSettingsStore.update((settings) => ({
+        ...settings,
+        modelDirectory: result.modelDirectory,
+        codecDirectory: result.codecDirectory
+      }));
+      downloadedPresets = new Set(MODEL_PRESETS.map((p) => p.id));
+      try {
+        await saveSettingsFile(get(appSettingsStore));
+      } catch (error) {
+        reportError("設定の自動保存に失敗しました", error);
+      }
+      logGeneration("info", `モデルを ${result.modelDirectory} に配置しました。sidecar を再起動します…`);
+      await restartNativeSidecar();
+      await refreshEngineId();
+      showNotification("モデルのセットアップが完了しました。");
+    } catch (error) {
+      const message = error instanceof ModelDownloadError ? error.message : error instanceof Error ? error.message : String(error);
+      downloadError = message;
+      logGeneration("error", `自動セットアップに失敗しました: ${message}`);
+      showNotification(`自動セットアップに失敗しました: ${message}`, "error");
+    } finally {
+      downloadRunning = false;
+      downloadAbort = undefined;
+      autoSetupProgress = undefined;
+    }
+  }
+
+  $: modelsConfigured = Boolean($appSettingsStore.modelDirectory?.trim());
+  $: needsSetup = nativeFileApi && (!modelsConfigured || engineId === "koehon-test-tone");
+
   function joinSubdir(base: string, child: string): string {
     const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
     const trimmed = base.endsWith(sep) ? base.slice(0, -1) : base;
@@ -929,6 +993,35 @@
     <div class="view-panel">
     {#if activeView === "home"}
       <section class="home">
+        {#if needsSetup}
+          <div class="setup-card">
+            <div class="setup-copy">
+              <small>初回セットアップ</small>
+              <h3>音声合成モデルを用意しましょう</h3>
+              <p>ワンクリックで MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダにダウンロードし、自動で設定します。約720MBあるので回線によっては数分かかります。</p>
+            </div>
+            <div class="setup-actions">
+              <button class="primary" disabled={downloadRunning} on:click={runAutoSetup}>
+                {downloadRunning ? "セットアップ中…" : "一発セットアップを実行"}
+              </button>
+              {#if downloadRunning}
+                <button on:click={cancelDownload}>中止</button>
+              {/if}
+            </div>
+            {#if autoSetupProgress}
+              {@const pct = autoSetupProgress.detail.overallTotalBytes > 0 ? Math.round((autoSetupProgress.detail.overallBytes / autoSetupProgress.detail.overallTotalBytes) * 100) : 0}
+              <div class="setup-progress">
+                <div class="meter-row">
+                  <span><strong>{autoSetupProgress.stepIndex + 1} / {autoSetupProgress.stepCount}</strong> · {autoSetupProgress.presetLabel}</span>
+                  <span>{formatBytes(autoSetupProgress.detail.overallBytes)} / {formatBytes(autoSetupProgress.detail.overallTotalBytes)} ({pct}%)</span>
+                </div>
+                <div class="progress"><span style={`width: ${pct}%`}></span></div>
+                <small>{autoSetupProgress.detail.currentFile ?? "準備中"}</small>
+              </div>
+            {/if}
+            {#if downloadError}<p class="error-banner">{downloadError}</p>{/if}
+          </div>
+        {/if}
         <div class="hero">
           <div class="hero-text">
             <div class="hero-eyebrow">Local audiobook workbench</div>
@@ -1404,8 +1497,17 @@
             <h3>モデルダウンロード</h3>
             <p>MOSS-TTS-Nano と音声トークナイザを Hugging Face から直接取得します。ダウンロード先は「モデルディレクトリ」配下の各サブフォルダです。</p>
           </header>
+          <div class="auto-setup-inline">
+            <div>
+              <strong>一発セットアップ</strong>
+              <p>アプリ専用フォルダに両方のモデルをダウンロードし、自動で設定を反映します。</p>
+            </div>
+            <button class="primary" disabled={downloadRunning || !nativeFileApi} on:click={runAutoSetup}>
+              {downloadRunning ? "実行中…" : "自動セットアップ"}
+            </button>
+          </div>
           {#if !$appSettingsStore.modelDirectory?.trim()}
-            <p class="banner error-banner">先に上の「モデルディレクトリ」を設定してください。</p>
+            <p class="banner">ディレクトリを自分で指定したい場合のみ、上の「モデルディレクトリ」に手動で設定してください。</p>
           {/if}
           {#if downloadError}<p class="error-banner">{downloadError}</p>{/if}
           <div class="download-grid">
