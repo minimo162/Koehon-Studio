@@ -696,7 +696,12 @@
   }
 
   $: modelsConfigured = Boolean($appSettingsStore.modelDirectory?.trim());
-  $: needsSetup = nativeFileApi && (!modelsConfigured || engineId === "koehon-test-tone");
+  // Show the setup card whenever the engine is anything other than the
+  // production MOSS engine — covers first launch (engineId undefined),
+  // test-tone fallback, and corrupted/incomplete model installs. A brief
+  // flicker during the first health check is acceptable.
+  $: needsSetup = nativeFileApi && engineId !== "moss-tts-nano-onnx";
+  $: setupIsReRun = modelsConfigured && engineId === "koehon-test-tone";
 
   function joinSubdir(base: string, child: string): string {
     const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
@@ -1015,13 +1020,19 @@
         {#if needsSetup}
           <div class="setup-card">
             <div class="setup-copy">
-              <small>初回セットアップ</small>
-              <h3>音声合成モデルを用意しましょう</h3>
-              <p>ワンクリックで MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダにダウンロードし、自動で設定します。約720MBあるので回線によっては数分かかります。</p>
+              <small>{setupIsReRun ? "モデル再セットアップ" : "初回セットアップ"}</small>
+              <h3>{setupIsReRun ? "音声合成モデルが読み込めていません" : "音声合成モデルを用意しましょう"}</h3>
+              <p>
+                {#if setupIsReRun}
+                  現在はテストトーン (サイン波) で仮動作しています。モデルファイルが不完全または壊れている可能性があります。もう一度ダウンロードして修復してください。
+                {:else}
+                  ワンクリックで MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダにダウンロードし、自動で設定します。約720MBあるので回線によっては数分かかります。
+                {/if}
+              </p>
             </div>
             <div class="setup-actions">
               <button class="primary" disabled={downloadRunning} on:click={runAutoSetup}>
-                {downloadRunning ? "セットアップ中…" : "一発セットアップを実行"}
+                {downloadRunning ? "セットアップ中…" : setupIsReRun ? "モデルを再ダウンロード" : "一発セットアップを実行"}
               </button>
               {#if downloadRunning}
                 <button on:click={cancelDownload}>中止</button>
