@@ -60,6 +60,7 @@ struct SidecarState {
 struct CliArgs {
     host: String,
     model_dir: Option<PathBuf>,
+    codec_dir: Option<PathBuf>,
     ort_dylib: Option<PathBuf>,
     cpu_threads: u16,
 }
@@ -93,6 +94,7 @@ fn main() -> std::io::Result<()> {
 fn parse_args() -> CliArgs {
     let mut host = env::var("KOEHON_TTS_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
     let mut model_dir: Option<PathBuf> = env::var_os("KOEHON_MODEL_DIR").map(PathBuf::from);
+    let mut codec_dir: Option<PathBuf> = env::var_os("KOEHON_CODEC_DIR").map(PathBuf::from);
     let mut ort_dylib: Option<PathBuf> = env::var_os("ORT_DYLIB_PATH").map(PathBuf::from);
     let mut cpu_threads: u16 = env::var("KOEHON_CPU_THREADS")
         .ok()
@@ -109,6 +111,11 @@ fn parse_args() -> CliArgs {
             "--model-dir" => {
                 if let Some(value) = iter.next() {
                     model_dir = Some(PathBuf::from(value));
+                }
+            }
+            "--codec-dir" => {
+                if let Some(value) = iter.next() {
+                    codec_dir = Some(PathBuf::from(value));
                 }
             }
             "--ort-dylib" => {
@@ -133,6 +140,7 @@ fn parse_args() -> CliArgs {
     CliArgs {
         host,
         model_dir,
+        codec_dir,
         ort_dylib,
         cpu_threads,
     }
@@ -158,7 +166,7 @@ fn initialize_engine(args: &CliArgs) -> SidecarState {
     // 1. MOSS-TTS-Nano multi-stage layout (tts_browser_onnx_meta.json present)
     if let Some(model_dir) = args.model_dir.as_deref() {
         if moss_tts_nano::is_moss_layout(model_dir) {
-            let outcome = moss_tts_nano::try_load(model_dir, args.cpu_threads);
+            let outcome = moss_tts_nano::try_load(model_dir, args.codec_dir.as_deref(), args.cpu_threads);
             diagnostics.extend(outcome.diagnostics);
             if let Some(engine) = outcome.engine {
                 return SidecarState {

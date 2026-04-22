@@ -247,10 +247,23 @@ pub fn try_load(
         }
     };
 
+    // See the commentary in moss_tts_nano::build_session — same knobs apply to
+    // the single-file path. Level3 + prepacking duplicate weights out of mmap,
+    // which on small hosts can force the OOM killer to fire.
     let session_builder = session_builder
-        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .with_optimization_level(GraphOptimizationLevel::Level2)
         .unwrap_or_else(|_| Session::builder().unwrap())
         .with_intra_threads(cpu_threads.max(1) as usize)
+        .unwrap_or_else(|_| Session::builder().unwrap())
+        .with_memory_pattern(false)
+        .unwrap_or_else(|_| Session::builder().unwrap())
+        .with_prepacking(false)
+        .unwrap_or_else(|_| Session::builder().unwrap())
+        .with_env_allocators()
+        .unwrap_or_else(|_| Session::builder().unwrap())
+        .with_intra_op_spinning(false)
+        .unwrap_or_else(|_| Session::builder().unwrap())
+        .with_inter_op_spinning(false)
         .unwrap_or_else(|_| Session::builder().unwrap());
 
     let session = match session_builder.commit_from_file(&model_path) {
