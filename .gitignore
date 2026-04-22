@@ -6,6 +6,7 @@ generated_audio/
 
 src-tauri/target/
 src-tauri/gen/
+src-tauri/onnxruntime*.dll
 native-tts/target/
 native-tts/sidecars/
 

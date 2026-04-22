@@ -35,7 +35,7 @@
     ],
     "externalBin": ["../native-tts/sidecars/koehon-tts-sidecar"],
     "resources": [
-      "../native-tts/sidecars/onnxruntime*.dll"
+      "onnxruntime*.dll"
     ],
     "windows": {
       "nsis": {

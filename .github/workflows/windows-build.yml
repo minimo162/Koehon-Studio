@@ -54,7 +54,8 @@ jobs:
           $src = Get-ChildItem "$env:RUNNER_TEMP\ort" -Recurse -Filter "onnxruntime.dll" | Select-Object -First 1
           New-Item -ItemType Directory -Force -Path native-tts\sidecars | Out-Null
           Copy-Item $src.FullName "native-tts\sidecars\onnxruntime.dll"
-          Write-Host "ONNX Runtime staged: $((Get-Item native-tts\sidecars\onnxruntime.dll).Length) bytes"
+          Copy-Item $src.FullName "src-tauri\onnxruntime.dll"
+          Write-Host "ONNX Runtime staged: $((Get-Item src-tauri\onnxruntime.dll).Length) bytes"
 
       - name: Build sidecar (release, windows-msvc)
         run: pnpm build:sidecar:release
