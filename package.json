@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:sidecar": "cargo build --manifest-path native-tts/Cargo.toml",
-    "build:sidecar:release": "cargo build --release --manifest-path native-tts/Cargo.toml",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "build:sidecar:release": "node scripts/build-sidecar.mjs --release",
     "build:app": "vite build",
     "dev": "vite --host 127.0.0.1",
     "build": "pnpm build:sidecar:release && pnpm build:app",

@@ -26,6 +26,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["../native-tts/sidecars/koehon-tts-sidecar"]
+    "externalBin": ["../native-tts/sidecars/koehon-tts-sidecar"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
   }
 }

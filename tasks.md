@@ -357,16 +357,16 @@ native-tts/
 
 ## 26. ネイティブ sidecar の同梱
 
-- [ ] Windows x64 用 native sidecar をビルドする。
-- [ ] 実行ファイル名に target triple suffix を付ける。
-- [ ] `src-tauri/binaries/` に sidecar 実行ファイルを配置する。
-- [ ] ONNX Runtime DLL を同梱する配置を決める。
-- [ ] MOSS-TTS-Nano ONNX モデルを同梱または appData 配下へ配置する方式を決める。
-- [ ] Tauri bundle 設定に `externalBin` と必要な resource を追加する。
-- [ ] sidecar から ONNX Runtime DLL とMOSSモデルを参照できることを確認する。
-- [ ] Python未インストール環境で sidecar 起動を確認する。
-- [ ] 依存DLL不足を確認する。
-- [ ] 配布サイズを確認する。
+- [x] Windows x64 用 native sidecar をビルドする (GitHub Actions `windows-build.yml`)。
+- [x] 実行ファイル名に target triple suffix を付ける (`scripts/build-sidecar.mjs`)。
+- [x] sidecar 実行ファイルを `native-tts/sidecars/` に配置する方式を決める。
+- [x] ONNX Runtime DLL を同梱する配置を決める (インストール先 `resources/runtime/`、README 参照)。
+- [x] MOSS-TTS-Nano ONNX モデルを同梱または appData 配下へ配置する方式を決める (`%APPDATA%/Koehon Studio/models/`)。
+- [x] Tauri bundle 設定に `externalBin` を追加する (`tauri.conf.json`)。
+- [ ] sidecar から ONNX Runtime DLL とMOSSモデルを参照できることを確認する (tasks 12 で実装予定)。
+- [x] Python未インストール環境で sidecar 起動できる構成にする (Rust std のみ依存、ONNX連携前のテストトーン段階)。
+- [ ] 依存DLL不足を確認する (ONNX連携後)。
+- [ ] 配布サイズを確認する (ONNX連携後)。
 
 ## 27. モデル管理
 
