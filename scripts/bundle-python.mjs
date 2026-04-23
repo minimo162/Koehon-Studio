@@ -19,23 +19,27 @@
  *   --python-version <v> cpython version string (default: pinned)
  *   --torch-version <v>  torch wheel version (default: pinned)
  *   --keep-cache         Keep downloaded tarballs in .cache/
+ *   --reuse-existing     Skip when OUT_DIR already contains a matching bundle
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { arch, platform, tmpdir } from "node:os";
+import { arch, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
+const scriptPath = fileURLToPath(import.meta.url);
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -84,6 +88,10 @@ function humanSize(n) {
     u += 1;
   }
   return `${v.toFixed(u >= 2 ? 2 : 1)} ${units[u]}`;
+}
+
+function fileSha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function download(url, dest) {
@@ -156,7 +164,9 @@ function installFromGitSubdir(gitUrl, subdir, siteDir) {
 
   const srcPkgDir = join(cloneDir, subdir);
   if (!existsSync(srcPkgDir)) {
-    throw new Error(`expected package directory ${subdir} not found in ${gitUrl}`);
+    throw new Error(
+      `expected package directory ${subdir} not found in ${gitUrl}`,
+    );
   }
   const dstPkgDir = join(siteDir, subdir);
   if (existsSync(dstPkgDir)) {
@@ -164,6 +174,43 @@ function installFromGitSubdir(gitUrl, subdir, siteDir) {
   }
   log(`copying ${srcPkgDir} → ${dstPkgDir}`);
   cpSync(srcPkgDir, dstPkgDir, { recursive: true });
+}
+
+function existingBundleMatches(triple) {
+  const manifestPath = join(OUT_DIR, "bundle-manifest.json");
+  const serverPath = join(OUT_DIR, "server.py");
+  const pythonPath = pythonExe(join(OUT_DIR, "python"));
+  const requirementsPath = join(
+    repoRoot,
+    "native-tts-python",
+    "requirements.txt",
+  );
+
+  if (
+    !existsSync(manifestPath) ||
+    !existsSync(serverPath) ||
+    !existsSync(pythonPath)
+  ) {
+    return false;
+  }
+
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return (
+      manifest.python_version === PYTHON_VERSION &&
+      manifest.python_tag === PYTHON_TAG &&
+      manifest.torch_version === TORCH_VERSION &&
+      manifest.torchaudio_version === TORCHAUDIO_VERSION &&
+      manifest.triple === triple &&
+      manifest.source_hashes?.bundle_script === fileSha256(scriptPath) &&
+      manifest.source_hashes?.requirements_txt ===
+        fileSha256(requirementsPath) &&
+      manifest.source_hashes?.server_py ===
+        fileSha256(join(repoRoot, "native-tts-python", "server.py"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 // --- main ---------------------------------------------------------------
@@ -178,7 +225,14 @@ function main() {
     );
   }
 
+  const triple = pbsTriple();
+
   log(`output → ${OUT_DIR}`);
+  if (flag("--reuse-existing") && existingBundleMatches(triple)) {
+    log("reusing existing Python runtime bundle");
+    return;
+  }
+
   if (existsSync(OUT_DIR)) {
     log("clearing existing output directory");
     rmSync(OUT_DIR, { recursive: true, force: true });
@@ -187,11 +241,8 @@ function main() {
   mkdirSync(CACHE_DIR, { recursive: true });
 
   // 1. Download + extract python-build-standalone
-  const triple = pbsTriple();
-  const pbsFile =
-    `cpython-${PYTHON_VERSION}+${PYTHON_TAG}-${triple}-install_only_stripped.tar.gz`;
-  const pbsUrl =
-    `https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_TAG}/${pbsFile}`;
+  const pbsFile = `cpython-${PYTHON_VERSION}+${PYTHON_TAG}-${triple}-install_only_stripped.tar.gz`;
+  const pbsUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_TAG}/${pbsFile}`;
   const pbsTar = join(CACHE_DIR, pbsFile);
   log(`fetching ${pbsUrl}`);
   download(pbsUrl, pbsTar);
@@ -279,6 +330,13 @@ function main() {
     torch_version: TORCH_VERSION,
     torchaudio_version: TORCHAUDIO_VERSION,
     triple,
+    source_hashes: {
+      bundle_script: fileSha256(scriptPath),
+      requirements_txt: fileSha256(
+        join(repoRoot, "native-tts-python", "requirements.txt"),
+      ),
+      server_py: fileSha256(join(repoRoot, "native-tts-python", "server.py")),
+    },
   };
   writeFileSync(
     join(OUT_DIR, "bundle-manifest.json"),
@@ -351,20 +409,24 @@ function pruneBundle(root) {
     return false;
   };
   const dirsRemoved = removeDirsMatching(root, isBundledPackageDir);
-  log(`pruned ${dirsRemoved} bloat directories (__pycache__ / tests / torch headers)`);
+  log(
+    `pruned ${dirsRemoved} bloat directories (__pycache__ / tests / torch headers)`,
+  );
 
   // Files: debug symbols, pip cache metadata, stub files. The .pyi type
   // stubs are only used by static checkers; runtime works without them.
   const isBundledBloatFile = (name) => {
-    if (name.endsWith(".pdb")) return true;          // Windows PDB symbols
-    if (name.endsWith(".pyc")) return true;           // stale bytecode
-    if (name === "RECORD") return true;               // dist-info file hashes
+    if (name.endsWith(".pdb")) return true; // Windows PDB symbols
+    if (name.endsWith(".pyc")) return true; // stale bytecode
+    if (name === "RECORD") return true; // dist-info file hashes
     if (name === "INSTALLER") return true;
     if (name === "WHEEL") return true;
     return false;
   };
   const filesRemoved = removeFilesMatching(root, isBundledBloatFile);
-  log(`pruned ${filesRemoved} bloat files (*.pdb / stale pyc / dist-info RECORD)`);
+  log(
+    `pruned ${filesRemoved} bloat files (*.pdb / stale pyc / dist-info RECORD)`,
+  );
 }
 
 function dirSize(dir) {

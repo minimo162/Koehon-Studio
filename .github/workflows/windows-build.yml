@@ -37,6 +37,22 @@ jobs:
             src-tauri
             native-tts
 
+      - name: Cache Python sidecar bundle
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/python-runtime
+          key: python-runtime-windows-${{ runner.os }}-${{ hashFiles('scripts/bundle-python.mjs', 'native-tts-python/requirements.txt', 'native-tts-python/server.py') }}
+
+      - name: Cache Python package downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/python-bundle
+            .cache/pip
+          key: python-package-downloads-windows-${{ runner.os }}-${{ hashFiles('scripts/bundle-python.mjs', 'native-tts-python/requirements.txt') }}
+          restore-keys: |
+            python-package-downloads-windows-${{ runner.os }}-
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -55,7 +71,9 @@ jobs:
         #   server.py                               (FastAPI sidecar entrypoint)
         # Tauri picks it up as a resource (see tauri.windows.conf.json).
         shell: pwsh
-        run: node scripts/bundle-python.mjs --out src-tauri/python-runtime
+        env:
+          PIP_CACHE_DIR: .cache/pip
+        run: node scripts/bundle-python.mjs --out src-tauri/python-runtime --reuse-existing --keep-cache
 
       - name: Report bundle size
         shell: pwsh

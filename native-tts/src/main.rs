@@ -29,6 +29,8 @@ const PYTHON_CANDIDATES: &[&str] = &[
     "python-runtime/python/python.exe",
     "resources/python-runtime/python/python.exe",
     "resources/_up_/python-runtime/python/python.exe",
+    "../../python-runtime/python/python.exe",
+    "../../../src-tauri/python-runtime/python/python.exe",
 ];
 
 #[cfg(not(windows))]
@@ -36,12 +38,16 @@ const PYTHON_CANDIDATES: &[&str] = &[
     "python-runtime/python/bin/python3",
     "resources/python-runtime/python/bin/python3",
     "resources/_up_/python-runtime/python/bin/python3",
+    "../../python-runtime/python/bin/python3",
+    "../../../src-tauri/python-runtime/python/bin/python3",
 ];
 
 const SERVER_CANDIDATES: &[&str] = &[
     "python-runtime/server.py",
     "resources/python-runtime/server.py",
     "resources/_up_/python-runtime/server.py",
+    "../../python-runtime/server.py",
+    "../../../src-tauri/python-runtime/server.py",
 ];
 
 fn resolve_bundle(exe_dir: &Path) -> Option<(PathBuf, PathBuf)> {
