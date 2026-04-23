@@ -18,6 +18,7 @@ pnpm check               # svelte-check
 pnpm build               # sidecar release + UI を dist/ へ
 pnpm run build:check         # Tauri debug build (インストーラ生成なし)
 pnpm run build:check:release # Tauri release build (インストーラ生成なし)
+pnpm run build:installer:nsis # NSIS インストーラ生成 (python-runtime 同梱)
 pnpm build:sidecar       # sidecar のみ (debug)
 pnpm build:sidecar:release
 ```
@@ -39,8 +40,10 @@ pnpm build:sidecar:release
 ### ローカル (Windows 実機)
 
 1. Node.js 20+, pnpm, Rust (rustup), MSVC Build Tools, WebView2 Runtime を入れる
-2. `pnpm install && pnpm tauri build`
-3. `src-tauri/target/release/bundle/msi/*.msi` と `.../nsis/*.exe` が生成される
+2. `pnpm install`
+3. `node scripts/bundle-python.mjs --out src-tauri/python-runtime --reuse-existing --keep-cache`
+4. `pnpm run build:installer:nsis`
+5. `src-tauri/target/release/bundle/nsis/*.exe` が生成される
 
 ### GitHub Actions
 
@@ -59,7 +62,7 @@ native-tts/sidecars/koehon-tts-sidecar-aarch64-apple-darwin
 ```
 
 `tauri.conf.json` の `bundle.externalBin` がこのパスを参照しているため、
-`pnpm tauri build` で自動的にインストーラへ含まれます。
+`pnpm run build:installer:nsis` で自動的にインストーラへ含まれます。
 
 ### 別 target を明示したい場合
 

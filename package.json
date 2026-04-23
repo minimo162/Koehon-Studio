@@ -12,6 +12,8 @@
     "build": "pnpm build:sidecar:release && pnpm build:app",
     "build:check": "tauri build --debug --no-bundle",
     "build:check:release": "tauri build --no-bundle",
+    "build:installer": "tauri build --config src-tauri/tauri.bundle.conf.json",
+    "build:installer:nsis": "tauri build --config src-tauri/tauri.bundle.conf.json --bundles nsis",
     "preview": "vite preview --host 127.0.0.1",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",

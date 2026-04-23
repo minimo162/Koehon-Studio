@@ -5,7 +5,7 @@
  * Downloads python-build-standalone, pip-installs CPU PyTorch + Irodori-TTS
  * + Semantic-DACVAE into the embedded interpreter, and drops server.py
  * alongside. Tauri then picks up the resulting `python-runtime/`
- * directory as a resource (see src-tauri/tauri.windows.conf.json) and
+ * directory as a resource (see src-tauri/tauri.bundle.conf.json) and
  * the Rust launcher sidecar spawns `python.exe server.py` at runtime.
  *
  * Windows-only for now.
