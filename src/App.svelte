@@ -278,26 +278,53 @@
     await new Promise((resolve) => window.setTimeout(resolve, 500));
   }
 
+  /**
+   * If the <audio> element is previewing a chunk that's about to be
+   * regenerated, unbind it so the sidecar's write doesn't collide with a
+   * Windows file lock held by the asset stream.
+   */
+  async function releaseChunkPreviewIfMatching(pathsBeingOverwritten: (string | undefined)[]): Promise<void> {
+    if (!selectedAudioPath) return;
+    if (!pathsBeingOverwritten.includes(selectedAudioPath)) return;
+    selectedAudioPath = "";
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+
   async function generateAllWithSidecar(): Promise<void> {
     if (!(await startNativeSidecar())) return;
+    await releaseChunkPreviewIfMatching(
+      Object.values(get(chunkStateStore)).map((c) => c.audioPath)
+    );
     await generateAll();
     notifyGenerationResult("全体生成");
   }
 
   async function generateChapterWithSidecar(chapterId: string): Promise<void> {
     if (!(await startNativeSidecar())) return;
+    const chapter = get(projectStore).chapters.find((c) => c.id === chapterId);
+    if (chapter) {
+      const states = get(chunkStateStore);
+      await releaseChunkPreviewIfMatching(chapter.chunks.map((c) => states[c.id]?.audioPath));
+    }
     await generateChapter(chapterId);
     notifyGenerationResult("章生成");
   }
 
   async function regenerateFailedWithSidecar(): Promise<void> {
     if (!(await startNativeSidecar())) return;
+    await releaseChunkPreviewIfMatching(
+      Object.values(get(chunkStateStore))
+        .filter((c) => c.status === "failed")
+        .map((c) => c.audioPath)
+    );
     await regenerateFailedChunks();
     notifyGenerationResult("失敗チャンク再生成");
   }
 
   async function regenerateChunkWithSidecar(chunkId: string): Promise<void> {
     if (!(await startNativeSidecar())) return;
+    const chunk = get(chunkStateStore)[chunkId];
+    if (chunk?.audioPath) await releaseChunkPreviewIfMatching([chunk.audioPath]);
     await regenerateChunk(chunkId);
     notifyGenerationResult("チャンク再生成");
   }
@@ -782,6 +809,18 @@
     await mergeChapterAudio(selectedChapter.id);
   }
 
+  /**
+   * If the <audio> element is currently playing the file we're about to
+   * overwrite/delete, unbind it first and give the asset stream a tick to
+   * release its handle. Otherwise Windows refuses the write with
+   * ERROR_SHARING_VIOLATION (os error 32).
+   */
+  async function releaseAudioIfSelected(path: string): Promise<void> {
+    if (selectedAudioPath !== path) return;
+    selectedAudioPath = "";
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+
   async function mergeChapterAudio(chapterId: string): Promise<string | undefined> {
     audioError = "";
     const chapter = get(projectStore).chapters.find((item) => item.id === chapterId);
@@ -789,6 +828,7 @@
     try {
       const project = get(projectStore);
       const outputPath = getChapterOutputPath(chapter, project.settings.outputDirectory || project.projectDir);
+      await releaseAudioIfSelected(outputPath);
       const result = await mergeWavFiles(buildChapterMergeInputs(chapter, get(chunkStateStore)), outputPath);
       chapterAudioPaths = { ...chapterAudioPaths, [chapter.id]: result.outputPath };
       selectedAudioPath = result.outputPath;
@@ -814,6 +854,7 @@
       const defaultPath = getExportOutputPath(project.title, project.settings.outputDirectory || project.projectDir);
       const outputPath = await selectExportPath(defaultPath);
       if (!outputPath) return;
+      await releaseAudioIfSelected(outputPath);
       const result = await mergeWavFiles(chapterPaths.map((path) => ({ type: "file", path })), outputPath);
       exportAudioPath = result.outputPath;
       selectedAudioPath = result.outputPath;
@@ -886,6 +927,12 @@
 
   async function deleteGeneratedAudio(record: AudioFileRecord): Promise<void> {
     try {
+      // Unbind the <audio> element first so the Tauri asset stream releases
+      // its file handle on Windows (otherwise the subsequent remove() can
+      // fail with ERROR_SHARING_VIOLATION / os error 32). Wait a tick so the
+      // DOM update flushes before we actually delete.
+      if (selectedAudioPath === record.path) selectedAudioPath = "";
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
       await deleteAudioFile(record.path);
       if (record.kind === "chunk") clearChunkAudio(record.id);
       if (record.kind === "chapter" && record.chapterId) {
@@ -894,7 +941,6 @@
         chapterAudioPaths = remaining;
       }
       if (record.kind === "export") exportAudioPath = "";
-      if (selectedAudioPath === record.path) selectedAudioPath = "";
     } catch (error) {
       audioError = reportError("音声ファイルの削除に失敗しました", error);
     }

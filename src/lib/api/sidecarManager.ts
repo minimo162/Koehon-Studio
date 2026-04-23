@@ -48,14 +48,20 @@ export async function ensureSidecar(events: SidecarEvents = {}): Promise<void> {
     events.onStatus?.("running");
     return;
   }
+  return startSidecar(events);
+}
+
+export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
+  // Every spawn path funnels through here and records itself in `starting`
+  // so stopSidecar can reliably await an in-flight start before killing.
   if (starting) return starting;
-  starting = startSidecar(events).finally(() => {
+  starting = runStart(events).finally(() => {
     starting = undefined;
   });
   return starting;
 }
 
-export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
+async function runStart(events: SidecarEvents): Promise<void> {
   if (!isTauriRuntime()) {
     events.onLog?.("info", "ブラウザ実行中のため sidecar 自動起動はスキップしました。");
     return;
@@ -76,8 +82,23 @@ export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
 }
 
 export async function stopSidecar(events: SidecarEvents = {}): Promise<void> {
+  // If a startSidecar is still in flight we must wait for it — otherwise the
+  // spawn completes after our `if (!child) return` check, leaves a running
+  // sidecar behind, and whoever called stopSidecar (e.g. the model-download
+  // flow) proceeds against an alive sidecar still holding file mmaps.
+  if (starting) {
+    try {
+      await starting;
+    } catch {
+      // startSidecar failed; nothing to kill, fall through.
+    }
+  }
   if (!child) return;
-  await child.kill();
+  try {
+    await child.kill();
+  } catch (error) {
+    events.onLog?.("error", error instanceof Error ? error.message : String(error));
+  }
   child = undefined;
   events.onStatus?.("stopped");
   events.onLog?.("info", "TTS sidecar を停止しました。");
