@@ -204,18 +204,18 @@ function joinPath(base: string, child: string): string {
 /** Known model presets. Each entry is a Hugging Face repo and its recommended destination subdir. */
 export const MODEL_PRESETS = [
   {
-    id: "moss-tts-nano",
-    label: "MOSS-TTS-Nano 100M (ONNX)",
-    repo: "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
-    subdir: "moss-tts-nano",
-    description: "TTS本体。約672MB。global/local transformer 5段構成の ONNX と tokenizer.model を含みます。"
+    id: "irodori-tts",
+    label: "Irodori-TTS 500M v2 (日本語特化 · RF-DiT)",
+    repo: "Aratako/Irodori-TTS-500M-v2",
+    subdir: "irodori-tts",
+    description: "日本語 TTS 本体。約 500 MB の model.safetensors (MIT)。Rectified Flow Diffusion Transformer。"
   },
   {
-    id: "moss-audio-tokenizer",
-    label: "MOSS Audio Tokenizer (ONNX)",
-    repo: "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
-    subdir: "moss-audio-tokenizer",
-    description: "波形 ↔ トークン変換用の ONNX。MOSS-TTS-Nano の前後段で必要。"
+    id: "semantic-dacvae",
+    label: "Semantic DACVAE (日本語 32dim · 48kHz)",
+    repo: "Aratako/Semantic-DACVAE-Japanese-32dim",
+    subdir: "semantic-dacvae",
+    description: "連続潜在表現を 48 kHz 波形に復号する Irodori 用オーディオコーデック。"
   }
 ] as const;
 export type ModelPresetId = (typeof MODEL_PRESETS)[number]["id"];
@@ -261,8 +261,8 @@ export async function autoSetupModels(options: {
   await mkdir(root, { recursive: true });
 
   const resolved: Record<ModelPresetId, string> = {
-    "moss-tts-nano": "",
-    "moss-audio-tokenizer": ""
+    "irodori-tts": "",
+    "semantic-dacvae": ""
   };
 
   for (let index = 0; index < MODEL_PRESETS.length; index += 1) {
@@ -285,7 +285,7 @@ export async function autoSetupModels(options: {
   }
 
   return {
-    modelDirectory: resolved["moss-tts-nano"],
-    codecDirectory: resolved["moss-audio-tokenizer"]
+    modelDirectory: resolved["irodori-tts"],
+    codecDirectory: resolved["semantic-dacvae"]
   };
 }

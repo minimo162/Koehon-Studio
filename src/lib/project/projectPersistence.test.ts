@@ -13,7 +13,7 @@ const baseProject: Project = {
   metadata: { title: "テスト" },
   chapters: [],
   settings: {
-    ttsEngine: "moss-tts-nano-onnx",
+    ttsEngine: "irodori-tts-500m-v2",
     voice: "default",
     cpuThreads: 4,
     maxChunkChars: 450,
@@ -24,6 +24,7 @@ const baseProject: Project = {
     exportFormat: "wav",
     includeManuscriptMemo: false,
     readUrls: false,
+    inferenceSteps: 32,
   },
   generation: {
     status: "running",

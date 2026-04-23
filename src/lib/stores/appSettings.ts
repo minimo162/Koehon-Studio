@@ -27,7 +27,7 @@ appSettingsStore.subscribe((settings) => {
 export function normalizeProjectSettings(input: PersistedProjectSettings): ProjectSettings {
   return {
     ...defaultProjectSettings,
-    ttsEngine: "moss-tts-nano-onnx",
+    ttsEngine: "irodori-tts-500m-v2",
     voice: normalizeText(input.voice, defaultProjectSettings.voice),
     modelDirectory: normalizeText(input.modelDirectory, ""),
     codecDirectory: normalizeText(input.codecDirectory, ""),
@@ -41,6 +41,7 @@ export function normalizeProjectSettings(input: PersistedProjectSettings): Proje
     exportFormat: "wav",
     includeManuscriptMemo: typeof input.includeManuscriptMemo === "boolean" ? input.includeManuscriptMemo : defaultProjectSettings.includeManuscriptMemo,
     readUrls: typeof input.readUrls === "boolean" ? input.readUrls : defaultProjectSettings.readUrls,
+    inferenceSteps: clampInteger(input.inferenceSteps, 8, 80, defaultProjectSettings.inferenceSteps),
   };
 }
 
@@ -66,6 +67,9 @@ export function validateProjectSettings(settings: ProjectSettings): string[] {
   }
   if (settings.exportFormat !== "wav") {
     errors.push("初期版の書き出し形式は wav のみ利用できます。");
+  }
+  if (!isIntegerInRange(settings.inferenceSteps, 8, 80)) {
+    errors.push("推論ステップ数は 8 から 80 の範囲で指定してください。");
   }
   return errors;
 }

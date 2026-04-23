@@ -1,0 +1,29 @@
+# Pinned inference-only dependencies for the Koehon Studio Python sidecar.
+# CPU wheels only — this runs inside an embedded python-build-standalone
+# environment bundled with the Tauri installer.
+
+# --- HTTP layer -------------------------------------------------------
+fastapi==0.115.5
+uvicorn==0.32.0
+pydantic==2.9.2
+
+# --- audio I/O --------------------------------------------------------
+numpy==1.26.4
+soundfile==0.12.1
+
+# --- PyTorch + Irodori stack (CPU) -----------------------------------
+# The GitHub Actions bundle script installs torch/torchaudio from the
+# pytorch.org CPU index so we get the CPU-only wheels (small and no CUDA).
+torch==2.5.1
+torchaudio==2.5.1
+
+transformers==4.46.3
+sentencepiece==0.2.0
+safetensors==0.4.5
+huggingface-hub==0.26.5
+tqdm==4.67.1
+
+# --- Irodori + DACVAE -------------------------------------------------
+# Installed from Git at bundle time (see scripts/bundle-python.mjs):
+#   irodori-tts @ git+https://github.com/Aratako/Irodori-TTS.git
+#   dacvae     @ git+https://github.com/facebookresearch/dacvae.git

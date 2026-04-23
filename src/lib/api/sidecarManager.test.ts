@@ -1,22 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { deriveCodecDir } from "./sidecarManager";
 
+// The codec dir is derived from the model dir by swapping the last path
+// segment for `semantic-dacvae` — matches how auto-setup lays the two
+// Hugging Face repos out as siblings.
 describe("deriveCodecDir", () => {
-  it("returns the sibling moss-audio-tokenizer path on POSIX layouts", () => {
-    expect(deriveCodecDir("/home/me/models/moss-tts-nano")).toBe(
-      "/home/me/models/moss-audio-tokenizer",
+  it("returns the sibling semantic-dacvae path on POSIX layouts", () => {
+    expect(deriveCodecDir("/home/me/models/irodori-tts")).toBe(
+      "/home/me/models/semantic-dacvae",
     );
   });
 
   it("strips a trailing slash before deriving", () => {
-    expect(deriveCodecDir("/home/me/models/moss-tts-nano/")).toBe(
-      "/home/me/models/moss-audio-tokenizer",
+    expect(deriveCodecDir("/home/me/models/irodori-tts/")).toBe(
+      "/home/me/models/semantic-dacvae",
     );
   });
 
   it("handles Windows-style paths", () => {
-    expect(deriveCodecDir("C:\\models\\moss-tts-nano")).toBe(
-      "C:\\models\\moss-audio-tokenizer",
+    expect(deriveCodecDir("C:\\models\\irodori-tts")).toBe(
+      "C:\\models\\semantic-dacvae",
     );
   });
 
@@ -25,7 +28,7 @@ describe("deriveCodecDir", () => {
   });
 
   it("returns empty when the path has no usable parent", () => {
-    expect(deriveCodecDir("/moss-tts-nano")).toBe("");
-    expect(deriveCodecDir("moss-tts-nano")).toBe("");
+    expect(deriveCodecDir("/irodori-tts")).toBe("");
+    expect(deriveCodecDir("irodori-tts")).toBe("");
   });
 });

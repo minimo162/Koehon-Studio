@@ -690,9 +690,9 @@
       downloadedPresets = new Set([...downloadedPresets, preset.id]);
       logGeneration("info", `${preset.label} をダウンロードしました。`);
       showNotification(`${preset.label} をダウンロードしました。`);
-      if (preset.id === "moss-tts-nano") {
+      if (preset.id === "irodori-tts") {
         updateSetting("modelDirectory", targetDir);
-      } else if (preset.id === "moss-audio-tokenizer") {
+      } else if (preset.id === "semantic-dacvae") {
         updateSetting("codecDirectory", targetDir);
       }
     } catch (error) {
@@ -775,12 +775,12 @@
   }
 
   $: modelsConfigured = Boolean($appSettingsStore.modelDirectory?.trim());
-  // Show the setup card whenever the engine is anything other than the
-  // production MOSS engine — covers first launch (engineId undefined),
-  // test-tone fallback, and corrupted/incomplete model installs. A brief
-  // flicker during the first health check is acceptable.
-  $: needsSetup = nativeFileApi && engineId !== "moss-tts-nano-onnx";
-  $: setupIsReRun = modelsConfigured && engineId === "koehon-test-tone";
+  // Show the setup card whenever the engine isn't the production Irodori
+  // engine — covers first launch (engineId undefined), missing weights,
+  // and partially-downloaded installs. A brief flicker during the first
+  // health check is acceptable.
+  $: needsSetup = nativeFileApi && engineId !== "irodori-tts-500m-v2";
+  $: setupIsReRun = modelsConfigured && engineId !== undefined && engineId !== "irodori-tts-500m-v2";
 
   function joinSubdir(base: string, child: string): string {
     const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
@@ -1134,7 +1134,7 @@
               {#if setupIsReRun}
                 テストトーン（サイン波）で仮動作しています。モデルファイルが不完全か破損している可能性があります。再ダウンロードで修復してください。
               {:else}
-                MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダに自動で取得します。約720MB。回線によっては数分かかります。
+                Irodori-TTS 500M v2 と Semantic DACVAE(日本語)をアプリ専用フォルダに自動で取得します。約600MB。回線によっては数分かかります。
               {/if}
             </p>
             <div class="setup-actions">
@@ -1604,7 +1604,7 @@
               <li>外部AIサービス（ChatGPT, Claude, Gemini など）にプロンプトを貼り付けると、入力内容がサービス提供者のサーバーに送信されます。機密情報や社外秘資料を扱う際は、各サービスの利用規約・データ取り扱い方針を必ず確認してください。</li>
               <li>元資料の著作権は著作者に帰属します。原稿化・音声化する前に、複製・翻案・公衆送信の権利範囲を確認してください。</li>
               <li>音声クローン（参照音声）を用いる場合は、その話者本人から明示的な同意を得てください。</li>
-              <li>生成された音声の商用利用は、モデル提供元のライセンス（MOSS-TTS-Nano は研究目的前提）に従ってください。</li>
+              <li>生成された音声の商用利用は、モデル提供元のライセンス（Irodori-TTS は MIT、Semantic-DACVAE は MIT、ただしデータセットやサンプル音声由来の制約は別途確認してください）に従ってください。</li>
             </ul>
           </details>
         </form>
@@ -1626,12 +1626,13 @@
         <div class="settings-section">
           <header>
             <h3>TTSエンジン</h3>
-            <p>推論に使うエンジン、話者、CPU並列数を指定します。</p>
+            <p>推論に使うエンジン、話者、CPU並列数、サンプリングステップ数を指定します。</p>
           </header>
           <div class="settings-grid">
-            <label>エンジン<select value={$appSettingsStore.ttsEngine} disabled><option value="moss-tts-nano-onnx">MOSS-TTS-Nano ONNX</option></select></label>
+            <label>エンジン<select value={$appSettingsStore.ttsEngine} disabled><option value="irodori-tts-500m-v2">Irodori-TTS 500M v2 (RF-DiT, Japanese)</option></select></label>
             <label>既定話者<input value={$appSettingsStore.voice} on:input={(event) => updateSetting("voice", (event.currentTarget as HTMLInputElement).value)} /></label>
             <label>CPUスレッド数<input type="number" min="1" max="32" value={$appSettingsStore.cpuThreads} on:input={(event) => updateSetting("cpuThreads", Number((event.currentTarget as HTMLInputElement).value))} /></label>
+            <label>推論ステップ(少=高速 / 多=高品質)<input type="number" min="8" max="80" value={$appSettingsStore.inferenceSteps} on:input={(event) => updateSetting("inferenceSteps", Number((event.currentTarget as HTMLInputElement).value))} /></label>
           </div>
         </div>
 
@@ -1675,7 +1676,7 @@
           </header>
           <div class="settings-grid">
             <label class="path-field">モデルディレクトリ<span><input value={$appSettingsStore.modelDirectory} on:input={(event) => updateSetting("modelDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseModelDirectory}>選択</button></span></label>
-            <label class="path-field">音声コーデックディレクトリ<span><input placeholder="未指定ならモデル隣接の moss-audio-tokenizer を自動使用" value={$appSettingsStore.codecDirectory} on:input={(event) => updateSetting("codecDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseCodecDirectory}>選択</button></span></label>
+            <label class="path-field">音声コーデックディレクトリ<span><input placeholder="未指定ならモデル隣接の semantic-dacvae を自動使用" value={$appSettingsStore.codecDirectory} on:input={(event) => updateSetting("codecDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseCodecDirectory}>選択</button></span></label>
             <label class="path-field">出力ディレクトリ<span><input value={$appSettingsStore.outputDirectory} on:input={(event) => updateSetting("outputDirectory", (event.currentTarget as HTMLInputElement).value)} /><button disabled={!nativeFileApi} on:click={chooseOutputDirectory}>選択</button></span></label>
           </div>
         </div>
@@ -1683,7 +1684,7 @@
         <div class="settings-section">
           <header>
             <h3>モデルダウンロード</h3>
-            <p>MOSS-TTS-Nano と音声トークナイザを Hugging Face から直接取得します。ダウンロード先は「モデルディレクトリ」配下の各サブフォルダです。</p>
+            <p>Irodori-TTS 500M v2 と Semantic DACVAE(日本語)を Hugging Face から直接取得します。ダウンロード先は「モデルディレクトリ」配下の各サブフォルダです。</p>
           </header>
           <div class="auto-setup-inline">
             <div>

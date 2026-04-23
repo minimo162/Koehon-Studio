@@ -12,3 +12,8 @@ native-tts/sidecars/
 
 .DS_Store
 *.log
+
+# Python sidecar bundle (generated, can be large)
+native-tts-python/__pycache__/
+src-tauri/python-runtime/
+.cache/

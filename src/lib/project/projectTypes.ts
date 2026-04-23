@@ -43,7 +43,7 @@ export type Chapter = {
 };
 
 export type ProjectSettings = {
-  ttsEngine: "moss-tts-nano-onnx";
+  ttsEngine: "irodori-tts-500m-v2";
   voice?: string;
   modelDirectory?: string;
   codecDirectory?: string;
@@ -57,6 +57,8 @@ export type ProjectSettings = {
   exportFormat: "wav" | "mp3" | "m4b";
   includeManuscriptMemo: boolean;
   readUrls: boolean;
+  /** Flow-matching sampling steps. Lower = faster inference, higher = better quality. */
+  inferenceSteps: number;
 };
 
 export type GenerationState = {
@@ -84,7 +86,7 @@ export type Project = {
 };
 
 export const defaultProjectSettings: ProjectSettings = {
-  ttsEngine: "moss-tts-nano-onnx",
+  ttsEngine: "irodori-tts-500m-v2",
   voice: "default",
   modelDirectory: "",
   codecDirectory: "",
@@ -97,6 +99,7 @@ export const defaultProjectSettings: ProjectSettings = {
   outputSampleRate: 48000,
   exportFormat: "wav",
   includeManuscriptMemo: false,
+  inferenceSteps: 32,
   readUrls: false
 };
 

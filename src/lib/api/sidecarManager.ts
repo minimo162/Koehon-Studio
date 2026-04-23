@@ -30,17 +30,23 @@ function buildArgs(): string[] {
   if (settings.cpuThreads && settings.cpuThreads > 0) {
     args.push("--cpu-threads", String(settings.cpuThreads));
   }
+  if (settings.inferenceSteps && settings.inferenceSteps > 0) {
+    args.push("--num-steps", String(settings.inferenceSteps));
+  }
   return args;
 }
 
-// MOSS preset layout: moss-tts-nano and moss-audio-tokenizer are siblings.
+// Irodori preset layout: irodori-tts and semantic-dacvae live as sibling
+// subdirectories under the app's models root. If the user points
+// --model-dir at the Irodori folder, this yields the sibling codec
+// folder automatically so they don't need to configure two paths.
 export function deriveCodecDir(modelDir: string): string {
   if (!modelDir) return "";
   const sep = modelDir.includes("\\") && !modelDir.includes("/") ? "\\" : "/";
   const trimmed = modelDir.endsWith(sep) ? modelDir.slice(0, -1) : modelDir;
   const lastSep = trimmed.lastIndexOf(sep);
   if (lastSep <= 0) return "";
-  return `${trimmed.slice(0, lastSep)}${sep}moss-audio-tokenizer`;
+  return `${trimmed.slice(0, lastSep)}${sep}semantic-dacvae`;
 }
 
 export async function ensureSidecar(events: SidecarEvents = {}): Promise<void> {

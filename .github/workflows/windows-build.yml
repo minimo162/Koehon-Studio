@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,27 +40,29 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests
+      - name: Run frontend tests
         run: pnpm test
 
-      - name: Download ONNX Runtime (Windows x64)
+      - name: Build sidecar launcher (release, windows-msvc)
+        # Tiny Rust binary that spawns `python-runtime/python/python.exe server.py`
+        # at runtime. All TTS work happens in the bundled Python sidecar.
+        run: pnpm build:sidecar:release
+
+      - name: Build Python sidecar bundle (python-build-standalone + torch CPU + Irodori + DACVAE)
+        # Produces src-tauri/python-runtime/ with:
+        #   python/python.exe                       (python-build-standalone 3.11)
+        #   python/Lib/site-packages/*              (torch, transformers, irodori_tts, dacvae, ...)
+        #   server.py                               (FastAPI sidecar entrypoint)
+        # Tauri picks it up as a resource (see tauri.windows.conf.json).
+        shell: pwsh
+        run: node scripts/bundle-python.mjs --out src-tauri/python-runtime
+
+      - name: Report bundle size
         shell: pwsh
         run: |
-          # Must match the ABI version required by the `ort` crate
-          # (v2.0.0-rc.10 expects ORT 1.22.x at runtime).
-          $version = "1.22.0"
-          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip"
-          $zip = "$env:RUNNER_TEMP\onnxruntime.zip"
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\ort" -Force
-          $src = Get-ChildItem "$env:RUNNER_TEMP\ort" -Recurse -Filter "onnxruntime.dll" | Select-Object -First 1
-          New-Item -ItemType Directory -Force -Path native-tts\sidecars | Out-Null
-          Copy-Item $src.FullName "native-tts\sidecars\onnxruntime.dll"
-          Copy-Item $src.FullName "src-tauri\onnxruntime.dll"
-          Write-Host "ONNX Runtime staged: $((Get-Item src-tauri\onnxruntime.dll).Length) bytes"
-
-      - name: Build sidecar (release, windows-msvc)
-        run: pnpm build:sidecar:release
+          $size = (Get-ChildItem -Recurse src-tauri/python-runtime |
+                   Measure-Object -Property Length -Sum).Sum
+          Write-Host ("python-runtime bundle: {0:N1} MB" -f ($size / 1MB))
 
       - name: Build Tauri app
         run: pnpm tauri build

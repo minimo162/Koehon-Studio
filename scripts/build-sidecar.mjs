@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 /**
- * Build the native TTS sidecar and copy it into native-tts/sidecars/
- * using the target-triple suffix that Tauri's externalBin expects
- * (e.g. koehon-tts-sidecar-x86_64-pc-windows-msvc.exe).
+ * Build the TTS sidecar launcher binary and copy it into
+ * native-tts/sidecars/ with the target-triple suffix Tauri's
+ * externalBin expects (e.g. koehon-tts-sidecar-x86_64-pc-windows-msvc.exe).
+ *
+ * The launcher is a tiny Rust program that spawns the bundled Python
+ * interpreter + server.py. The Python bundle itself is built by
+ * scripts/bundle-python.mjs and declared as a Tauri resource.
  *
  * Usage:
  *   node scripts/build-sidecar.mjs            # debug build for the host triple
@@ -61,7 +65,7 @@ function main() {
     try {
       chmodSync(dstBinary, 0o755);
     } catch {
-      // ignore on systems without chmod support
+      // chmod unavailable on some filesystems; harmless for Tauri.
     }
   }
   console.log(`[sidecar] copied → ${dstBinary}`);
