@@ -898,6 +898,13 @@ impl TtsEngine for MossTtsNanoEngine {
         }
 
         // --- Codec decode -----------------------------------------------
+        // The codec decoder's transformer self-attention is O(N^2) in the
+        // audio-code sequence length; running all ~375 frames at once
+        // requested a ~2.3 GB MatMul buffer and OOM-crashed the sidecar on
+        // 6 GB hosts. Decode in fixed-size windows instead and concatenate
+        // the per-channel PCM output.
+        const DECODE_WINDOW_FRAMES: usize = 100;
+
         let codec_mutex = self.codec.as_ref().ok_or_else(|| {
             SynthError::Inference(
                 "Audio codec が読み込まれていないため、音声トークンを波形に変換できません。".to_string(),
@@ -907,47 +914,63 @@ impl TtsEngine for MossTtsNanoEngine {
             .lock()
             .map_err(|e| SynthError::Inference(format!("codec lock: {e}")))?;
 
-        let frames_count = audio_frames.len();
-        let flat_codes: Vec<i32> = audio_frames.into_iter().flatten().collect();
-        let codes_arr: Array3<i32> = Array3::from_shape_vec((1, frames_count, N_VQ), flat_codes)
-            .map_err(|e| SynthError::BadShape(e.to_string()))?;
-        let lengths_arr: Array1<i32> = Array1::from(vec![frames_count as i32]);
+        let total_frames = audio_frames.len();
+        let mut left_ch: Vec<f32> = Vec::new();
+        let mut right_ch: Vec<f32> = Vec::new();
 
-        let codes_val = Value::from_array(codes_arr)
-            .map_err(|e| SynthError::Inference(e.to_string()))?;
-        let lengths_val = Value::from_array(lengths_arr)
-            .map_err(|e| SynthError::Inference(e.to_string()))?;
+        for window_start in (0..total_frames).step_by(DECODE_WINDOW_FRAMES) {
+            let window_end = (window_start + DECODE_WINDOW_FRAMES).min(total_frames);
+            let window_frames = &audio_frames[window_start..window_end];
+            let window_count = window_frames.len();
+            let flat_codes: Vec<i32> =
+                window_frames.iter().flat_map(|f| f.iter().copied()).collect();
 
-        let inputs: Vec<(&str, SessionInputValue<'_>)> = vec![
-            ("audio_codes", SessionInputValue::from(codes_val)),
-            ("audio_code_lengths", SessionInputValue::from(lengths_val)),
-        ];
-        let outputs = codec_session
-            .run(inputs)
-            .map_err(|e| SynthError::Inference(format!("codec decode run: {e}")))?;
+            let codes_arr: Array3<i32> =
+                Array3::from_shape_vec((1, window_count, N_VQ), flat_codes)
+                    .map_err(|e| SynthError::BadShape(e.to_string()))?;
+            let lengths_arr: Array1<i32> = Array1::from(vec![window_count as i32]);
 
-        let (audio_shape, audio_view) = outputs
-            .get("audio")
-            .ok_or_else(|| SynthError::Inference("codec missing audio".to_string()))?
-            .try_extract_tensor::<f32>()
-            .map_err(|e| SynthError::Inference(e.to_string()))?;
+            let codes_val = Value::from_array(codes_arr)
+                .map_err(|e| SynthError::Inference(e.to_string()))?;
+            let lengths_val = Value::from_array(lengths_arr)
+                .map_err(|e| SynthError::Inference(e.to_string()))?;
 
-        if audio_shape.len() != 3 || audio_shape[1] != CODEC_CHANNELS as i64 {
-            return Err(SynthError::BadShape(format!(
-                "codec audio shape {:?} (期待: [1, 2, samples])",
-                audio_shape
-            )));
+            let inputs: Vec<(&str, SessionInputValue<'_>)> = vec![
+                ("audio_codes", SessionInputValue::from(codes_val)),
+                ("audio_code_lengths", SessionInputValue::from(lengths_val)),
+            ];
+            let outputs = codec_session.run(inputs).map_err(|e| {
+                SynthError::Inference(format!(
+                    "codec decode run (frames {window_start}..{window_end}): {e}"
+                ))
+            })?;
+
+            let (audio_shape, audio_view) = outputs
+                .get("audio")
+                .ok_or_else(|| SynthError::Inference("codec missing audio".to_string()))?
+                .try_extract_tensor::<f32>()
+                .map_err(|e| SynthError::Inference(e.to_string()))?;
+
+            if audio_shape.len() != 3 || audio_shape[1] != CODEC_CHANNELS as i64 {
+                return Err(SynthError::BadShape(format!(
+                    "codec audio shape {:?} (期待: [1, 2, samples])",
+                    audio_shape
+                )));
+            }
+            let samples_per_channel = audio_shape[2] as usize;
+            let audio_vec = audio_view.to_vec();
+
+            left_ch.extend_from_slice(&audio_vec[0..samples_per_channel]);
+            right_ch
+                .extend_from_slice(&audio_vec[samples_per_channel..2 * samples_per_channel]);
         }
-        let samples_per_channel = audio_shape[2] as usize;
-        let audio_vec = audio_view.to_vec();
 
-        // audio is [1, 2, samples] float in [-1, 1]; interleave LRLR
-        let mut pcm: Vec<i16> = Vec::with_capacity(samples_per_channel * 2);
-        for i in 0..samples_per_channel {
-            let left = audio_vec[i];
-            let right = audio_vec[samples_per_channel + i];
-            pcm.push((left.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16);
-            pcm.push((right.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16);
+        // audio is [2, samples] float in [-1, 1]; interleave LRLR as i16
+        let total_samples = left_ch.len();
+        let mut pcm: Vec<i16> = Vec::with_capacity(total_samples * 2);
+        for i in 0..total_samples {
+            pcm.push((left_ch[i].clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16);
+            pcm.push((right_ch[i].clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16);
         }
 
         Ok(SynthResult {
