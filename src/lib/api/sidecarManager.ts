@@ -4,7 +4,13 @@ import { appSettingsStore } from "../stores/appSettings";
 import { isTauriRuntime } from "./fileAccess";
 import { ttsClient, type TtsHealth } from "./ttsClient";
 
-export type SidecarStatus = "idle" | "starting" | "loading" | "running" | "failed" | "stopped";
+export type SidecarStatus =
+  | "idle"
+  | "starting"
+  | "loading"
+  | "running"
+  | "failed"
+  | "stopped";
 
 type SidecarEvents = {
   onStatus?: (status: SidecarStatus) => void;
@@ -16,6 +22,8 @@ let starting: Promise<void> | undefined;
 let stopping = false;
 const sidecarProgram = "../native-tts/sidecars/koehon-tts-sidecar";
 const SIDECAR_BOOT_TIMEOUT_MS = 120000;
+const SIDECAR_PORT_PROBE_TIMEOUT_MS = 1500;
+const SIDECAR_HEALTH_URL = "http://127.0.0.1:18083/health";
 
 function buildArgs(): string[] {
   const settings = get(appSettingsStore);
@@ -70,7 +78,10 @@ export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
 
 async function runStart(events: SidecarEvents): Promise<void> {
   if (!isTauriRuntime()) {
-    events.onLog?.("info", "ブラウザ実行中のため sidecar 自動起動はスキップしました。");
+    events.onLog?.(
+      "info",
+      "ブラウザ実行中のため sidecar 自動起動はスキップしました。",
+    );
     return;
   }
   const existingHealth = await probeHealth(events);
@@ -78,17 +89,36 @@ async function runStart(events: SidecarEvents): Promise<void> {
     events.onStatus?.(existingHealth.ok ? "running" : "loading");
     return;
   }
+  if (await isSidecarPortReachable()) {
+    events.onStatus?.("starting");
+    events.onLog?.(
+      "info",
+      "TTS sidecar のポートは使用中です。既存プロセスの /health 応答を待ちます。",
+    );
+    await waitForHealth(events);
+    return;
+  }
 
   events.onStatus?.("starting");
   const args = buildArgs();
   const command = Command.sidecar(sidecarProgram, args);
   let exitMessage = "";
-  command.stdout.on("data", makeStreamLogger(events, "info"));
-  command.stderr.on("data", makeStreamLogger(events, "error"));
+  let awaitingHealth = true;
+  const stdoutLogger = makeStreamLogger(events, "info");
+  const stderrLogger = makeStreamLogger(events, "error");
+  command.stdout.on("data", stdoutLogger.write);
+  command.stderr.on("data", stderrLogger.write);
   command.on("close", (data) => {
+    stdoutLogger.flush();
+    stderrLogger.flush();
     child = undefined;
     exitMessage = `TTS sidecar が終了しました (code=${data.code ?? "null"}, signal=${data.signal ?? "null"})。`;
-    events.onLog?.(stopping || data.code === 0 ? "info" : "error", exitMessage);
+    if (!awaitingHealth) {
+      events.onLog?.(
+        stopping || data.code === 0 ? "info" : "error",
+        exitMessage,
+      );
+    }
     stopping = false;
   });
   command.on("error", (error) => {
@@ -96,8 +126,15 @@ async function runStart(events: SidecarEvents): Promise<void> {
     events.onLog?.("error", exitMessage);
   });
   child = await command.spawn();
-  events.onLog?.("info", `TTS sidecar を起動しました (${args.join(" ") || "既定設定"})。`);
-  await waitForHealth(events, () => exitMessage);
+  events.onLog?.(
+    "info",
+    `TTS sidecar を起動しました (${args.join(" ") || "既定設定"})。`,
+  );
+  try {
+    await waitForHealth(events, () => exitMessage);
+  } finally {
+    awaitingHealth = false;
+  }
 }
 
 export async function stopSidecar(events: SidecarEvents = {}): Promise<void> {
@@ -118,19 +155,27 @@ export async function stopSidecar(events: SidecarEvents = {}): Promise<void> {
     await child.kill();
   } catch (error) {
     stopping = false;
-    events.onLog?.("error", error instanceof Error ? error.message : String(error));
+    events.onLog?.(
+      "error",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   child = undefined;
   events.onStatus?.("stopped");
   events.onLog?.("info", "TTS sidecar を停止しました。");
 }
 
-export async function restartSidecar(events: SidecarEvents = {}): Promise<void> {
+export async function restartSidecar(
+  events: SidecarEvents = {},
+): Promise<void> {
   await stopSidecar(events);
   await startSidecar(events);
 }
 
-async function waitForHealth(events: SidecarEvents, getExitMessage: () => string = () => ""): Promise<void> {
+async function waitForHealth(
+  events: SidecarEvents,
+  getExitMessage: () => string = () => "",
+): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < SIDECAR_BOOT_TIMEOUT_MS) {
     const exitMessage = getExitMessage();
@@ -146,18 +191,25 @@ async function waitForHealth(events: SidecarEvents, getExitMessage: () => string
     await delay(300);
   }
   events.onStatus?.("failed");
-  throw new Error(`TTS sidecar の /health 確認が ${Math.round(SIDECAR_BOOT_TIMEOUT_MS / 1000)} 秒以内に完了しませんでした。`);
+  throw new Error(
+    `TTS sidecar の /health 確認が ${Math.round(SIDECAR_BOOT_TIMEOUT_MS / 1000)} 秒以内に完了しませんでした。`,
+  );
 }
 
 let lastLoggedEngine: string | undefined;
 let lastLoggedDiagnostics: string | undefined;
 
-async function probeHealth(events: SidecarEvents = {}): Promise<TtsHealth | undefined> {
+async function probeHealth(
+  events: SidecarEvents = {},
+): Promise<TtsHealth | undefined> {
   try {
     const health = await ttsClient.health();
     if (health.engine !== lastLoggedEngine) {
       lastLoggedEngine = health.engine;
-      events.onLog?.("info", `TTSエンジン: ${health.engine_name ?? health.engine}`);
+      events.onLog?.(
+        "info",
+        `TTSエンジン: ${health.engine_name ?? health.engine}`,
+      );
     }
     const diagnosticsKey = JSON.stringify(health.diagnostics ?? []);
     if (diagnosticsKey !== lastLoggedDiagnostics) {
@@ -174,27 +226,57 @@ async function probeHealth(events: SidecarEvents = {}): Promise<TtsHealth | unde
   }
 }
 
+async function isSidecarPortReachable(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(
+    () => controller.abort(),
+    SIDECAR_PORT_PROBE_TIMEOUT_MS,
+  );
+  try {
+    await fetch(SIDECAR_HEALTH_URL, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return true;
+  } catch (error) {
+    return error instanceof DOMException && error.name === "AbortError";
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
 function makeStreamLogger(
   events: SidecarEvents,
-  level: "info" | "error"
-): (chunk: string) => void {
+  level: "info" | "error",
+): { write: (chunk: string) => void; flush: () => void } {
   let buffer = "";
-  return (chunk: string) => {
-    buffer += String(chunk);
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed) events.onLog?.(level, trimmed);
-    }
-    const trimmedBuffer = buffer.trim();
-    if (trimmedBuffer.length > 160) {
-      events.onLog?.(level, trimmedBuffer);
-      buffer = "";
-    }
+  const emit = (line: string) => {
+    const trimmed = line.trim();
+    if (trimmed) events.onLog?.(level, trimmed);
+  };
+  return {
+    write: (chunk: string) => {
+      buffer += String(chunk);
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        emit(line);
+      }
+      const trimmedBuffer = buffer.trim();
+      if (trimmedBuffer.length > 160) {
+        events.onLog?.(level, trimmedBuffer);
+        buffer = "";
+      }
+    },
+    flush: () => {
+      if (buffer) {
+        emit(buffer);
+        buffer = "";
+      }
+    },
   };
 }
