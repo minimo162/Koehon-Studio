@@ -138,6 +138,17 @@
   $: activeViewSubtitle = viewMeta[activeView].subtitle;
   $: activeViewStep = viewMeta[activeView].step;
 
+  // Workflow progress — drives sidebar check marks and the home journey hint.
+  $: hasGeneratedAudio = chunkAudioRecords.length > 0;
+  $: hasExportedAudio = Boolean(exportAudioPath);
+  $: stepDone = {
+    home: manuscriptLoaded,
+    manuscript: hasGeneratedAudio,
+    generation: hasGeneratedAudio,
+    audio: hasExportedAudio
+  } as Record<ViewId, boolean>;
+  $: homeState = needsSetup ? "setup" : manuscriptLoaded ? "resume" : "welcome";
+
   const workflowNav: Array<{ id: ViewId; label: string; idx: string }> = [
     { id: "home", label: "ホーム", idx: "01" },
     { id: "manuscript", label: "原稿", idx: "02" },
@@ -927,83 +938,84 @@
 <main class="shell" class:sidebar-collapsed={sidebarCollapsed}>
   <aside class="sidebar" aria-label="メインナビゲーション">
     <div class="brand">
-      <span class="brand-mark">声</span>
+      <span class="brand-mark" aria-hidden="true">声</span>
       <div class="brand-text">
         <strong>Koehon Studio</strong>
         <small>Audiobook Workbench</small>
       </div>
     </div>
 
-    <button class="command-launcher" on:click={openCommandPalette} title="{shortcutModifier}+K">
-      <span>コマンド…</span>
-      <kbd>{shortcutModifier}K</kbd>
-    </button>
-
-    <div class="nav-section">
-      <div class="nav-label">Workflow</div>
-      {#each workflowNav as item}
+    <nav class="nav">
+      {#each workflowNav as item, i}
         <button
           class="nav-item"
           class:active={activeView === item.id}
+          class:done={stepDone[item.id]}
           on:click={() => (activeView = item.id)}
           title={item.label}
         >
-          <span class="idx">{item.idx}</span>
-          <span>{item.label}</span>
-          <span class="nav-dot" aria-hidden="true"></span>
+          <span class="nav-num" aria-hidden="true">
+            {#if stepDone[item.id]}✓{:else}{i + 1}{/if}
+          </span>
+          <span class="nav-label-text">{item.label}</span>
+          {#if activeView === item.id}<span class="nav-cursor" aria-hidden="true"></span>{/if}
         </button>
       {/each}
-    </div>
 
-    <div class="nav-section">
-      <div class="nav-label">Tools</div>
+      <div class="nav-divider" aria-hidden="true"></div>
+
       {#each toolNav as item}
         <button
-          class="nav-item"
+          class="nav-item tool"
           class:active={activeView === item.id}
           on:click={() => (activeView = item.id)}
           title={item.label}
         >
-          <span class="idx">{item.idx}</span>
-          <span>{item.label}</span>
-          <span class="nav-dot" aria-hidden="true"></span>
+          <span class="nav-label-text">{item.label}</span>
+          {#if activeView === item.id}<span class="nav-cursor" aria-hidden="true"></span>{/if}
         </button>
       {/each}
-    </div>
+    </nav>
 
     <div class="sidebar-footer">
-      <div class="sidebar-status" data-status={sidecarKind(sidecarStatus)}>
-        <span class="dot"></span>
-        <span>TTS sidecar · {sidecarLabel[sidecarStatus]}</span>
+      <button class="cmd-launcher" on:click={openCommandPalette} title="{shortcutModifier}+K">
+        <span>コマンド</span>
+        <kbd>{shortcutModifier}K</kbd>
+      </button>
+      <div class="sidebar-status" data-status={sidecarKind(sidecarStatus)} title="TTS sidecar · {sidecarLabel[sidecarStatus]}">
+        <span class="dot" aria-hidden="true"></span>
+        <span class="status-label">TTS · {sidecarLabel[sidecarStatus]}</span>
       </div>
-      <div>{nativeFileApi ? "Tauri native" : "Web preview"}</div>
     </div>
   </aside>
 
   <section class="workspace">
     <header class="topbar">
       <div class="topbar-text">
-        <div class="eyebrow">
-          <span>{activeViewStep}</span>
-          {#if activeView !== "home" && $manuscriptStore.fileName}
-            <span class="sep">／</span>
-            <span>{$manuscriptStore.fileName}</span>
-          {/if}
-        </div>
         <h1>{activeView === "home" ? $projectStore.title : activeViewTitle}</h1>
-        <p>{activeView === "home" ? activeViewSubtitle : `${chapters.length}章 · ${totalChunks}チャンク · ${activeViewSubtitle}`}</p>
+        {#if activeView !== "home" && $manuscriptStore.fileName}
+          <div class="topbar-meta">
+            <span class="filename-chip">{$manuscriptStore.fileName}</span>
+            {#if $manuscriptStore.dirty}<span class="dirty">未保存</span>{/if}
+          </div>
+        {/if}
       </div>
       <div class="actions">
-        {#if nativeFileApi}
-          <button class="primary with-kbd" on:click={openNativeManuscript} title="{shortcutModifier}+O">
-            原稿を開く<kbd>{shortcutModifier}O</kbd>
+        {#if activeView === "home"}
+          <button class="ghost" on:click={openCommandPalette} title="コマンドパレット">
+            <span>コマンド</span><kbd>{shortcutModifier}K</kbd>
           </button>
-          <button on:click={openProject}>プロジェクトを開く</button>
-          <button class="with-kbd" on:click={saveProject} disabled={!manuscriptLoaded} title="{shortcutModifier}+Shift+S">
-            プロジェクト保存<kbd>{shortcutModifier}⇧S</kbd>
+        {:else if nativeFileApi}
+          {#if manuscriptLoaded}
+            <button on:click={saveProject} disabled={!manuscriptLoaded} title="{shortcutModifier}+Shift+S">
+              保存
+            </button>
+          {/if}
+          <button class="ghost" on:click={openNativeManuscript} title="原稿を開く">
+            原稿を開く
           </button>
         {:else}
-          <label class="file-button primary">
+          <label class="file-button ghost">
             原稿を開く
             <input type="file" accept=".md,.txt,text/markdown,text/plain" on:change={readFile} />
           </label>
@@ -1016,137 +1028,159 @@
     {#key activeView}
     <div class="view-panel">
     {#if activeView === "home"}
-      <section class="home">
-        {#if needsSetup}
-          <div class="setup-card">
-            <div class="setup-copy">
-              <small>{setupIsReRun ? "モデル再セットアップ" : "初回セットアップ"}</small>
-              <h3>{setupIsReRun ? "音声合成モデルが読み込めていません" : "音声合成モデルを用意しましょう"}</h3>
-              <p>
-                {#if setupIsReRun}
-                  現在はテストトーン (サイン波) で仮動作しています。モデルファイルが不完全または壊れている可能性があります。もう一度ダウンロードして修復してください。
-                {:else}
-                  ワンクリックで MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダにダウンロードし、自動で設定します。約720MBあるので回線によっては数分かかります。
-                {/if}
-              </p>
+      <section class="home-view" data-state={homeState}>
+        {#if homeState === "setup"}
+          <!-- Three-state hero, case 1: model setup is required. Focus the user on a single action. -->
+          <div class="setup-hero" class:rerun={setupIsReRun}>
+            <div class="setup-kicker">
+              <span class="setup-dot" aria-hidden="true"></span>
+              {setupIsReRun ? "再セットアップが必要です" : "最初のステップ"}
             </div>
-            <div class="setup-actions">
-              <button class="primary" disabled={downloadRunning} on:click={runAutoSetup}>
-                {downloadRunning ? "セットアップ中…" : setupIsReRun ? "モデルを再ダウンロード" : "一発セットアップを実行"}
-              </button>
-              {#if downloadRunning}
-                <button on:click={cancelDownload}>中止</button>
+            <h2 class="setup-title">
+              {#if setupIsReRun}
+                音声モデルが<em>読み込めていません</em>
+              {:else}
+                まず、<em>音声モデル</em>を用意します
               {/if}
+            </h2>
+            <p class="setup-lead">
+              {#if setupIsReRun}
+                テストトーン（サイン波）で仮動作しています。モデルファイルが不完全か破損している可能性があります。再ダウンロードで修復してください。
+              {:else}
+                MOSS-TTS-Nano と音声トークナイザをアプリ専用フォルダに自動で取得します。約720MB。回線によっては数分かかります。
+              {/if}
+            </p>
+            <div class="setup-actions">
+              <button class="primary big" disabled={downloadRunning} on:click={runAutoSetup}>
+                {downloadRunning ? "セットアップ中…" : setupIsReRun ? "モデルを再ダウンロード" : "セットアップを実行"}
+              </button>
+              {#if downloadRunning}<button class="ghost" on:click={cancelDownload}>中止</button>{/if}
             </div>
             {#if autoSetupProgress}
               {@const pct = autoSetupProgress.detail.overallTotalBytes > 0 ? Math.round((autoSetupProgress.detail.overallBytes / autoSetupProgress.detail.overallTotalBytes) * 100) : 0}
               <div class="setup-progress">
                 <div class="meter-row">
-                  <span><strong>{autoSetupProgress.stepIndex + 1} / {autoSetupProgress.stepCount}</strong> · {autoSetupProgress.presetLabel}</span>
-                  <span>{formatBytes(autoSetupProgress.detail.overallBytes)} / {formatBytes(autoSetupProgress.detail.overallTotalBytes)} ({pct}%)</span>
+                  <span>{autoSetupProgress.stepIndex + 1} / {autoSetupProgress.stepCount} · {autoSetupProgress.presetLabel}</span>
+                  <span>{formatBytes(autoSetupProgress.detail.overallBytes)} / {formatBytes(autoSetupProgress.detail.overallTotalBytes)}（{pct}%）</span>
                 </div>
                 <div class="progress"><span style={`width: ${pct}%`}></span></div>
                 <small>{autoSetupProgress.detail.currentFile ?? "準備中"}</small>
               </div>
             {/if}
             {#if downloadError}<p class="error-banner">{downloadError}</p>{/if}
+
+            <div class="setup-foot">
+              <small>セットアップ後は、原稿の読み込み・音声化・書き出しに進めます。</small>
+            </div>
           </div>
+        {:else}
+          <!-- Three-state hero, cases 2 & 3: welcome (no manuscript) or resume (manuscript loaded). -->
+          <div class="hero">
+            <div class="hero-kicker">Local Audiobook Workbench</div>
+            {#if homeState === "resume"}
+              <h2 class="hero-title">続きから、<em>朗読</em>を仕上げましょう。</h2>
+              <p class="hero-lead">原稿を読み込み中です。音声化の続きを行うか、原稿を差し替えられます。</p>
+
+              <div class="resume-card">
+                <div class="resume-info">
+                  <small class="resume-kicker">現在の原稿</small>
+                  <strong class="resume-name">{$manuscriptStore.fileName ?? "原稿"}</strong>
+                  <span class="resume-meta">
+                    {chapters.length}章 · {totalChunks}チャンク{#if hasGeneratedAudio} · 音声 {chunkAudioRecords.length}件{/if}
+                  </span>
+                </div>
+                <div class="resume-actions">
+                  <button class="primary" on:click={() => (activeView = hasGeneratedAudio ? "audio" : "generation")}>
+                    {hasGeneratedAudio ? "書き出しへ →" : "音声生成へ →"}
+                  </button>
+                </div>
+              </div>
+
+              <div class="hero-cta secondary-cta">
+                <button class="ghost" on:click={() => (activeView = "manuscript")}>原稿を確認</button>
+                {#if nativeFileApi}
+                  <button class="ghost" on:click={openNativeManuscript}>別の原稿を開く</button>
+                {/if}
+              </div>
+            {:else}
+              <h2 class="hero-title">AI原稿から、<em>静かな朗読</em>を。</h2>
+              <p class="hero-lead">
+                外部AIで整えたMarkdown原稿を読み込み、章ごとに音声化し、WAVとして書き出します。<br />
+                本文・音声・プロジェクトはすべて手元で完結します。
+              </p>
+              <div class="hero-cta">
+                {#if nativeFileApi}
+                  <button class="primary big drop-ready" on:click={openNativeManuscript}>
+                    <span>原稿を開く</span><kbd>{shortcutModifier}O</kbd>
+                  </button>
+                  <button class="ghost" on:click={openProject}>プロジェクトを開く</button>
+                {:else}
+                  <label class="primary-button big drop-ready">
+                    原稿を開く
+                    <input type="file" accept=".md,.txt,text/markdown,text/plain" on:change={readFile} />
+                  </label>
+                {/if}
+              </div>
+              <p class="drop-hint-inline">または、このウィンドウに <code>.md</code> / <code>.txt</code> をドロップ</p>
+            {/if}
+
+            <ol class="journey">
+              <li class:done={stepDone.home} class:current={!stepDone.home}>
+                <span class="j-n" aria-hidden="true">{stepDone.home ? "✓" : "1"}</span>
+                <div><strong>読み込む</strong><small>.md / .txt</small></div>
+              </li>
+              <li class:done={stepDone.manuscript} class:current={stepDone.home && !stepDone.manuscript}>
+                <span class="j-n" aria-hidden="true">{stepDone.manuscript ? "✓" : "2"}</span>
+                <div><strong>生成する</strong><small>Local TTS</small></div>
+              </li>
+              <li class:done={stepDone.audio} class:current={stepDone.manuscript && !stepDone.audio}>
+                <span class="j-n" aria-hidden="true">{stepDone.audio ? "✓" : "3"}</span>
+                <div><strong>書き出す</strong><small>WAV</small></div>
+              </li>
+            </ol>
+          </div>
+
+          {#if $recentFilesStore.length > 0 || $recentProjectsStore.length > 0}
+            <div class="recent-grid">
+              {#if $recentFilesStore.length > 0}
+                <div class="recent-block">
+                  <div class="eyebrow">最近の原稿</div>
+                  <ul>
+                    {#each $recentFilesStore.slice(0, 5) as file}
+                      <li><button disabled={!nativeFileApi} on:click={() => openRecent(file.path)} title={file.path}>{file.name}</button></li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              {#if $recentProjectsStore.length > 0}
+                <div class="recent-block">
+                  <div class="eyebrow">最近のプロジェクト</div>
+                  <ul>
+                    {#each $recentProjectsStore.slice(0, 5) as project}
+                      <li><button disabled={!nativeFileApi} on:click={() => openRecentProject(project.path)} title={project.path}>{project.name}</button></li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          <footer class="home-foot">
+            <button class="inline-link" on:click={() => (activeView = "prompt")}>AI用の原稿プロンプトを作る →</button>
+          </footer>
         {/if}
-        <div class="hero">
-          <div class="hero-text">
-            <div class="hero-eyebrow">Local audiobook workbench</div>
-            <h2>AI原稿から、<em>静かな朗読</em>を。</h2>
-            <p>外部AIで整えたMarkdown原稿を読み込み、章とチャンクを確認し、ローカルTTS sidecarで音声化します。本文・音声・プロジェクトはすべて手元で完結します。</p>
-            <div class="hero-actions">
-              {#if nativeFileApi}
-                <button class="primary with-kbd" on:click={openNativeManuscript}>
-                  原稿を読み込む<kbd>{shortcutModifier}O</kbd>
-                </button>
-                <button on:click={openProject}>プロジェクトを開く</button>
-              {:else}
-                <label class="primary-button">
-                  原稿を読み込む
-                  <input type="file" accept=".md,.txt,text/markdown,text/plain" on:change={readFile} />
-                </label>
-              {/if}
-              <button class="ghost" on:click={() => (activeView = "prompt")}>プロンプトを作る →</button>
-            </div>
-          </div>
-          <div class="hero-aside">
-            <div class="meta-card">
-              <small>元資料種別</small>
-              <strong>{$projectStore.metadata.source_type ?? "未設定"}</strong>
-            </div>
-            <div class="meta-card">
-              <small>対象読者</small>
-              <strong>{$projectStore.metadata.audience ?? "未設定"}</strong>
-            </div>
-            <div class="meta-card">
-              <small>言語</small>
-              <strong>{$projectStore.metadata.language ?? "ja-JP"}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div class="workflow">
-          <article class="workflow-step">
-            <div class="step-num">01</div>
-            <h3>原稿を読み込む</h3>
-            <p>外部AIが作ったMarkdownを取り込み、章とチャンクに自動分割します。front matterからタイトルや対象読者も抽出します。</p>
-            <small>.md · .txt</small>
-          </article>
-          <article class="workflow-step">
-            <div class="step-num">02</div>
-            <h3>音声を生成する</h3>
-            <p>章単位または全体で生成を開始。TTS sidecarがチャンクを順番に処理し、失敗したものだけを再生成できます。</p>
-            <small>Local only · ONNX Runtime</small>
-          </article>
-          <article class="workflow-step">
-            <div class="step-num">03</div>
-            <h3>WAVを書き出す</h3>
-            <p>pauseタグを無音として挿入し、章・全体のWAVを結合。ナレーションとして手元に残せます。</p>
-            <small>WAV · 将来 MP3 / M4B</small>
-          </article>
-        </div>
-
-        <div class="recent-grid">
-          <div class="recent-card">
-            <div class="section-title">最近使った原稿</div>
-            <div class="recent-list">
-              {#if $recentFilesStore.length === 0}
-                <p class="empty">まだ原稿を開いていません。</p>
-              {:else}
-                {#each $recentFilesStore as file}
-                  <button disabled={!nativeFileApi} on:click={() => openRecent(file.path)} title={file.path}>{file.name}</button>
-                {/each}
-              {/if}
-            </div>
-          </div>
-          <div class="recent-card">
-            <div class="section-title">最近使ったプロジェクト</div>
-            <div class="recent-list">
-              {#if $recentProjectsStore.length === 0}
-                <p class="empty">プロジェクトを保存するとここに表示されます。</p>
-              {:else}
-                {#each $recentProjectsStore as project}
-                  <button disabled={!nativeFileApi} on:click={() => openRecentProject(project.path)} title={project.path}>{project.name}</button>
-                {/each}
-              {/if}
-            </div>
-          </div>
-        </div>
       </section>
 
     {:else if activeView === "manuscript"}
       {#if !manuscriptLoaded}
         <div class="empty-state">
-          <div class="empty-icon">原</div>
+          <div class="empty-icon" aria-hidden="true">原</div>
           <h3>原稿がまだ読み込まれていません</h3>
-          <p>Markdown(.md)またはテキスト(.txt)の原稿を開くと、章とチャンクが自動で整理されます。</p>
+          <p>Markdown（.md）またはテキスト（.txt）を開くと、自動で章とチャンクに分かれます。</p>
           <div class="actions">
             {#if nativeFileApi}
               <button class="primary" on:click={openNativeManuscript}>原稿を開く</button>
-              <button on:click={openProject}>プロジェクトを開く</button>
+              <button class="ghost" on:click={openProject}>プロジェクトを開く</button>
             {:else}
               <label class="primary-button">
                 原稿を開く
@@ -1156,24 +1190,20 @@
           </div>
         </div>
       {:else}
-        <section class="manuscript-layout">
+        <section class="manuscript-view">
           <aside class="chapter-list">
             <div class="chapter-list-head">
-              <div class="section-title">章 · {chapters.length}</div>
+              <div class="eyebrow">章（{chapters.length}）</div>
               <div class="chapter-search">
-                <input
-                  type="search"
-                  placeholder="章を検索…"
-                  bind:value={chapterQuery}
-                />
+                <input type="search" placeholder="検索…" bind:value={chapterQuery} />
                 {#if chapterQuery}
-                  <button class="ghost" on:click={() => (chapterQuery = "")} aria-label="クリア">×</button>
+                  <button class="ghost ch-clear" on:click={() => (chapterQuery = "")} aria-label="クリア">×</button>
                 {/if}
               </div>
             </div>
             <div class="chapter-list-items">
               {#if filteredChapters.length === 0}
-                <p class="chapter-empty">該当する章がありません。</p>
+                <p class="chapter-empty">該当する章がありません</p>
               {:else}
                 {#each filteredChapters as chapter}
                   <button
@@ -1191,281 +1221,315 @@
             </div>
           </aside>
 
-          <div class="editor-column">
-            <div class="toolbar">
-              <span class="filename">{$manuscriptStore.fileName ?? "サンプル原稿"}</span>
-              {#if $manuscriptStore.dirty}<em>未保存</em>{/if}
-              <div class="toolbar-spacer"></div>
-              <button on:click={saveDraft}>下書き保存</button>
-              {#if nativeFileApi}<button class="primary" on:click={saveProject}>プロジェクト保存</button>{/if}
-            </div>
-            <div class="editor-stats">
-              <span><strong>{manuscriptCharCount.toLocaleString()}</strong>文字</span>
-              <span class="dot-sep">·</span>
-              <span><strong>{chapters.length}</strong>章</span>
-              <span class="dot-sep">·</span>
-              <span><strong>{totalChunks}</strong>チャンク</span>
-              {#if pauseChunkCount > 0}
-                <span class="dot-sep">·</span>
-                <span>無音 <strong>{pauseChunkCount}</strong></span>
-              {/if}
-              <span class="dot-sep">·</span>
-              <span>読み上げ時間 <strong>~{estimatedReadingMinutes}</strong>分</span>
-            </div>
-            <textarea
-              value={$manuscriptStore.raw}
-              on:input={(event) => updateManuscript((event.currentTarget as HTMLTextAreaElement).value)}
-              spellcheck="false"
-              placeholder="ここに原稿が表示されます…"
-            ></textarea>
-          </div>
-
-          <aside class="preview-column">
-            <div class="section-title">選択章プレビュー</div>
+          <div class="chapter-detail">
             {#if selectedChapter}
-              <h2>{selectedChapter.title}</h2>
-              <label class="chapter-toggle">
-                <input
-                  type="checkbox"
-                  checked={selectedChapter.includeInNarration}
-                  on:change={(event) => toggleChapterNarration(selectedChapter.id, (event.currentTarget as HTMLInputElement).checked)}
-                />
-                読み上げ対象
-              </label>
-              <pre>{selectedChapter.plainText}</pre>
-              <div class="section-title">チャンク · {selectedChapter.chunks.length}</div>
-              <div class="chunk-list">
-                {#each selectedChapter.chunks as chunk}
-                  <article class:pause={chunk.type === "pause"}>
-                    <span>{String(chunk.order).padStart(2, "0")}</span>
-                    {#if chunk.type === "pause"}
-                      <strong>無音 · {chunk.pauseMs}ms</strong>
-                    {:else}
-                      <p>{chunk.text}</p>
-                    {/if}
-                  </article>
-                {/each}
+              <header class="ch-header">
+                <div class="ch-title-row">
+                  <span class="ch-order">Ch.{String(selectedChapter.order).padStart(2, "0")}</span>
+                  <h2>{selectedChapter.title}</h2>
+                </div>
+                <label class="chapter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={selectedChapter.includeInNarration}
+                    on:change={(event) => toggleChapterNarration(selectedChapter.id, (event.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>読み上げ対象</span>
+                </label>
+              </header>
+
+              <div class="chapter-stats">
+                <span><strong>{manuscriptCharCount.toLocaleString()}</strong><small>総文字数</small></span>
+                <span><strong>{totalChunks}</strong><small>チャンク</small></span>
+                {#if pauseChunkCount > 0}
+                  <span><strong>{pauseChunkCount}</strong><small>無音</small></span>
+                {/if}
+                <span><strong>~{estimatedReadingMinutes}</strong><small>読み上げ(分)</small></span>
               </div>
+
+              <pre class="ch-body">{selectedChapter.plainText}</pre>
+
+              <details class="panel-disclosure">
+                <summary>
+                  <span>チャンク（{selectedChapter.chunks.length}）</span>
+                  <span class="chevron" aria-hidden="true">▾</span>
+                </summary>
+                <div class="chunk-list">
+                  {#each selectedChapter.chunks as chunk}
+                    <article class:pause={chunk.type === "pause"}>
+                      <span class="chunk-order">{String(chunk.order).padStart(2, "0")}</span>
+                      {#if chunk.type === "pause"}
+                        <strong>無音 · {chunk.pauseMs}ms</strong>
+                      {:else}
+                        <p>{chunk.text}</p>
+                      {/if}
+                    </article>
+                  {/each}
+                </div>
+              </details>
+
+              <details class="panel-disclosure">
+                <summary>
+                  <span>原稿を編集 <small class="mono">{$manuscriptStore.fileName ?? "サンプル"}{$manuscriptStore.dirty ? " · 未保存" : ""}</small></span>
+                  <span class="chevron" aria-hidden="true">▾</span>
+                </summary>
+                <textarea
+                  value={$manuscriptStore.raw}
+                  on:input={(event) => updateManuscript((event.currentTarget as HTMLTextAreaElement).value)}
+                  spellcheck="false"
+                  placeholder="ここに原稿が表示されます…"
+                ></textarea>
+                <div class="actions editor-actions">
+                  <button class="ghost" on:click={saveDraft}>下書き保存</button>
+                  {#if nativeFileApi}<button class="primary" on:click={saveProject}>プロジェクト保存</button>{/if}
+                </div>
+              </details>
             {/if}
-          </aside>
+
+            <div class="next-step">
+              <button class="primary" on:click={() => (activeView = "generation")}>音声生成へ進む →</button>
+            </div>
+          </div>
         </section>
       {/if}
 
     {:else if activeView === "generation"}
       {#if !manuscriptLoaded}
         <div class="empty-state">
-          <div class="empty-icon">声</div>
+          <div class="empty-icon" aria-hidden="true">声</div>
           <h3>音声化する原稿がありません</h3>
-          <p>まず「原稿」画面から原稿を読み込んでください。章分割とチャンク分割が完了すると生成できるようになります。</p>
+          <p>まず「原稿」画面から原稿を読み込んでください。章分割が完了すると生成できるようになります。</p>
           <button class="primary" on:click={() => (activeView = "manuscript")}>原稿を開く</button>
         </div>
       {:else}
-        <section class="generation-layout">
-          <div class="generation-head">
-            <div>
-              <h2>音声生成</h2>
-              <p>textチャンクを順番に <code>/synthesize</code> へ送信します。pauseチャンクは無音として結合時に挿入されます。</p>
-            </div>
-            <div class="actions">
-              <button on:click={checkSidecar}>Health確認</button>
-              <button on:click={startNativeSidecar}>起動</button>
-              <button on:click={restartNativeSidecar}>再起動</button>
-            </div>
-          </div>
-
+        <section class="generation-view">
           {#if engineId === "koehon-test-tone"}
-            <div class="banner warning-banner">
-              <strong>テストトーンモードで生成中です。</strong>
-              <span>実音声を得るには、<button class="inline-link" on:click={() => (activeView = "home")}>ホーム画面</button>の「一発セットアップ」からモデルをダウンロードしてください。</span>
+            <div class="warning-banner">
+              <strong>テストトーンモード</strong>
+              <span>実音声を得るには <button class="inline-link" on:click={() => (activeView = "home")}>ホームのセットアップ</button> でモデルを取得してください。</span>
             </div>
           {/if}
 
-          <div class="generation-meter" class:is-running={$generationStateStore.status === "running"}>
-            <div class="meter-row">
-              <div>
-                <div class="meter-percent">{progress}%</div>
+          <div class="gen-focus" class:is-running={$generationStateStore.status === "running"}>
+            <div class="gen-hero">
+              <div class="gen-percent">
+                <span class="gen-num">{progress}</span>
+                <span class="gen-pct">%</span>
+              </div>
+              <div class="gen-meta">
                 <span class="status-chip {$generationStateStore.status}">
-                  <span class="dot"></span>
-                  {$generationStateStore.status}
+                  <span class="dot" aria-hidden="true"></span>
+                  {$generationStateStore.status === "running" ? "生成中" :
+                    $generationStateStore.status === "completed" ? "完了" :
+                    $generationStateStore.status === "failed" ? "失敗あり" :
+                    $generationStateStore.status === "stopping" ? "停止中" : "待機"}
                 </span>
-              </div>
-              <div class="meter-stats">
-                <div class="meter-stat">
-                  <small>完了</small>
-                  <strong>{$generationStateStore.completedChunks} / {$generationStateStore.totalChunks}</strong>
-                </div>
-                <div class="meter-stat fail">
-                  <small>失敗</small>
-                  <strong>{$generationStateStore.failedChunks}</strong>
-                </div>
-                <div class="meter-stat">
-                  <small>Sidecar</small>
-                  <strong>{sidecarLabel[sidecarStatus]}</strong>
+                <div class="gen-stats">
+                  <div><strong>{$generationStateStore.completedChunks}</strong><small>完了</small></div>
+                  <div><strong>{$generationStateStore.totalChunks}</strong><small>総数</small></div>
+                  {#if $generationStateStore.failedChunks > 0}
+                    <div class="fail"><strong>{$generationStateStore.failedChunks}</strong><small>失敗</small></div>
+                  {/if}
                 </div>
               </div>
             </div>
+
             <div class="progress"><span style={`width: ${progress}%`}></span></div>
-            <div class="actions">
-              <button class="primary" disabled={$generationStateStore.status === "running"} on:click={generateAllWithSidecar}>全体を生成</button>
-              <button disabled={!selectedChapter || $generationStateStore.status === "running"} on:click={() => selectedChapter && generateChapterWithSidecar(selectedChapter.id)}>選択章を生成</button>
-              <button class="danger" disabled={failedChunks.length === 0 || $generationStateStore.status === "running"} on:click={regenerateFailedWithSidecar}>失敗のみ再生成 ({failedChunks.length})</button>
-              <button disabled={$generationStateStore.status !== "running"} on:click={stopGeneration}>停止</button>
-            </div>
-          </div>
 
-          {#if currentChunk}
-            <div class="current-chunk">
-              <strong>NOW · {currentChunk.id}</strong>
-              <span>{currentChunk.text?.slice(0, 140) ?? `無音 ${currentChunk.pauseMs}ms`}</span>
+            <div class="gen-cta">
+              {#if $generationStateStore.status === "running"}
+                <button class="primary big" on:click={stopGeneration}>停止</button>
+              {:else if $generationStateStore.status === "completed" && $generationStateStore.failedChunks === 0}
+                <button class="primary big" on:click={() => (activeView = "audio")}>書き出し画面へ →</button>
+                <button class="ghost" on:click={generateAllWithSidecar}>もう一度生成</button>
+              {:else}
+                <button class="primary big" on:click={generateAllWithSidecar}>
+                  {$generationStateStore.completedChunks > 0 ? "生成を続ける" : "生成を開始"}
+                </button>
+              {/if}
+              {#if failedChunks.length > 0 && $generationStateStore.status !== "running"}
+                <button class="ghost" on:click={regenerateFailedWithSidecar}>失敗 {failedChunks.length} 件のみ再生成</button>
+              {/if}
             </div>
-          {/if}
 
-          <div>
-            <div class="section-title">章ごとの進捗</div>
-            <div class="chapter-progress">
-              {#each chapters as chapter}
-                {@const chapterChunks = chapter.chunks.map((chunk) => $chunkStateStore[chunk.id] ?? chunk)}
-                {@const doneCount = chapterChunks.filter((chunk) => chunk.status === "done" || chunk.status === "skipped").length}
-                {@const failedCount = chapterChunks.filter((chunk) => chunk.status === "failed").length}
-                <article class:muted={!chapter.includeInNarration}>
-                  <strong>{chapter.title}</strong>
-                  <span>{doneCount} / {chapterChunks.length} 完了{failedCount > 0 ? ` · 失敗 ${failedCount}` : ""}</span>
-                  <button disabled={$generationStateStore.status === "running" || !chapter.includeInNarration} on:click={() => generateChapterWithSidecar(chapter.id)}>章を生成</button>
-                </article>
-              {/each}
-            </div>
-          </div>
-
-          <div>
-            <div class="filter-bar">
-              <div class="section-title" style="margin:0">チャンク</div>
-              <div class="filter-tabs" role="tablist">
-                {#each [
-                  { id: "all" as const, label: "すべて" },
-                  { id: "pending" as const, label: "待機" },
-                  { id: "generating" as const, label: "生成中" },
-                  { id: "done" as const, label: "完了" },
-                  { id: "failed" as const, label: "失敗" }
-                ] as tab}
-                  <button
-                    class="filter-tab"
-                    class:active={chunkFilter === tab.id}
-                    on:click={() => (chunkFilter = tab.id)}
-                  >
-                    {tab.label}
-                    <span class="filter-count">{chunkStatusCounts[tab.id] ?? 0}</span>
-                  </button>
-                {/each}
-              </div>
-            </div>
-            {#if filteredChunks.length === 0}
-              <p class="filter-empty">該当するチャンクはありません。</p>
-            {:else}
-              <div class="queue-grid">
-                {#each filteredChunks as chunk}
-                  <article class={chunk.status}>
-                    <strong>{chunk.id}</strong>
-                    <span>{chunk.status}</span>
-                    <p>{chunk.type === "pause" ? `無音 ${chunk.pauseMs}ms` : chunk.text?.slice(0, 80)}</p>
-                    {#if chunk.error}<em>{chunk.error}</em>{/if}
-                    {#if chunk.status === "failed"}
-                      <button disabled={$generationStateStore.status === "running"} on:click={() => regenerateChunkWithSidecar(chunk.id)}>再生成</button>
-                    {/if}
-                  </article>
-                {/each}
+            {#if currentChunk && $generationStateStore.status === "running"}
+              <div class="current-chunk">
+                <small>生成中 · {currentChunk.id}</small>
+                <p>{currentChunk.text?.slice(0, 140) ?? `無音 ${currentChunk.pauseMs}ms`}</p>
               </div>
             {/if}
           </div>
+
+          <details class="panel-disclosure advanced">
+            <summary>
+              <span>章別の進捗 · チャンク詳細</span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </summary>
+
+            <div class="advanced-inner">
+              <div>
+                <div class="eyebrow">章ごとの進捗</div>
+                <div class="chapter-progress">
+                  {#each chapters as chapter}
+                    {@const chapterChunks = chapter.chunks.map((chunk) => $chunkStateStore[chunk.id] ?? chunk)}
+                    {@const doneCount = chapterChunks.filter((chunk) => chunk.status === "done" || chunk.status === "skipped").length}
+                    {@const failedCount = chapterChunks.filter((chunk) => chunk.status === "failed").length}
+                    <article class:muted={!chapter.includeInNarration}>
+                      <strong>{chapter.title}</strong>
+                      <span>{doneCount} / {chapterChunks.length} 完了{failedCount > 0 ? ` · 失敗 ${failedCount}` : ""}</span>
+                      <button class="ghost" disabled={$generationStateStore.status === "running" || !chapter.includeInNarration} on:click={() => generateChapterWithSidecar(chapter.id)}>この章を生成</button>
+                    </article>
+                  {/each}
+                </div>
+              </div>
+
+              <div>
+                <div class="filter-bar">
+                  <div class="eyebrow" style="margin:0">チャンク</div>
+                  <div class="filter-tabs" role="tablist">
+                    {#each [
+                      { id: "all" as const, label: "すべて" },
+                      { id: "pending" as const, label: "待機" },
+                      { id: "generating" as const, label: "生成中" },
+                      { id: "done" as const, label: "完了" },
+                      { id: "failed" as const, label: "失敗" }
+                    ] as tab}
+                      <button
+                        class="filter-tab"
+                        class:active={chunkFilter === tab.id}
+                        on:click={() => (chunkFilter = tab.id)}
+                      >
+                        {tab.label}
+                        <span class="filter-count">{chunkStatusCounts[tab.id] ?? 0}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+                {#if filteredChunks.length === 0}
+                  <p class="filter-empty">該当するチャンクはありません</p>
+                {:else}
+                  <div class="queue-grid">
+                    {#each filteredChunks as chunk}
+                      <article class={chunk.status}>
+                        <strong>{chunk.id}</strong>
+                        <span>{chunk.status}</span>
+                        <p>{chunk.type === "pause" ? `無音 ${chunk.pauseMs}ms` : chunk.text?.slice(0, 80)}</p>
+                        {#if chunk.error}<em>{chunk.error}</em>{/if}
+                        {#if chunk.status === "failed"}
+                          <button class="ghost" disabled={$generationStateStore.status === "running"} on:click={() => regenerateChunkWithSidecar(chunk.id)}>再生成</button>
+                        {/if}
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+
+              <div>
+                <div class="eyebrow">TTS sidecar</div>
+                <div class="sidecar-row">
+                  <span class="sidecar-pill" data-status={sidecarKind(sidecarStatus)}>
+                    <span class="dot" aria-hidden="true"></span>
+                    {sidecarLabel[sidecarStatus]}
+                  </span>
+                  <div class="actions">
+                    <button class="ghost" on:click={checkSidecar}>Health確認</button>
+                    <button class="ghost" on:click={startNativeSidecar}>起動</button>
+                    <button class="ghost" on:click={restartNativeSidecar}>再起動</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
         </section>
       {/if}
 
     {:else if activeView === "audio"}
-      <section class="generation-layout">
-        <div class="generation-head">
-          <div>
-            <h2>音声プレビュー</h2>
-            <p>生成済みチャンクを章WAVへ結合し、全体WAVとして書き出します。pauseは指定ミリ秒の無音として挿入されます。</p>
-          </div>
-          <div class="actions">
-            <button disabled={!selectedChapter || !nativeFileApi} on:click={mergeSelectedChapterAudio}>選択章を結合</button>
-            <button class="primary" disabled={chunkAudioRecords.length === 0 || !nativeFileApi} on:click={exportWholeWav}>全体WAVを書き出し</button>
-          </div>
+      {#if audioRecords.length === 0}
+        <div class="empty-state">
+          <div class="empty-icon" aria-hidden="true">♪</div>
+          <h3>まだ音声がありません</h3>
+          <p>「生成」画面でチャンクを音声化すると、ここで再生・結合・書き出しができます。</p>
+          <button class="primary" on:click={() => (activeView = "generation")}>生成画面へ</button>
         </div>
+      {:else}
+        <section class="audio-view">
+          {#if audioError}<p class="error-banner">{audioError}</p>{/if}
 
-        {#if audioError}<p class="error-banner">{audioError}</p>{/if}
-
-        {#if selectedAudioPath}
-          <div class="audio-player">
-            <strong>{selectedAudioPath}</strong>
-            <audio controls src={toAudioSrc(selectedAudioPath)}></audio>
-            <div class="actions">
-              <button on:click={() => openSelectedAudio(selectedAudioPath)}>開く</button>
-              <button on:click={() => revealSelectedAudio(selectedAudioPath)}>フォルダで表示</button>
+          <div class="audio-focus">
+            <div class="audio-head">
+              <div>
+                <div class="eyebrow">書き出し</div>
+                <strong class="audio-count">{audioRecords.length} ファイル</strong>
+              </div>
+              <div class="actions">
+                <button class="ghost" disabled={!selectedChapter || !nativeFileApi} on:click={mergeSelectedChapterAudio}>選択章を結合</button>
+                <button class="primary" disabled={chunkAudioRecords.length === 0 || !nativeFileApi} on:click={exportWholeWav}>全体WAVを書き出し</button>
+              </div>
             </div>
-          </div>
-        {/if}
 
-        {#if audioRecords.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon">♪</div>
-            <h3>まだ音声がありません</h3>
-            <p>「生成」画面でチャンクを音声化すると、ここで再生・結合・書き出しができます。</p>
-            <button class="primary" on:click={() => (activeView = "generation")}>生成画面へ</button>
+            {#if selectedAudioPath}
+              <div class="audio-player">
+                <small class="mono">{selectedAudioPath}</small>
+                <audio controls src={toAudioSrc(selectedAudioPath)}></audio>
+                <div class="actions">
+                  <button class="ghost" on:click={() => openSelectedAudio(selectedAudioPath)}>開く</button>
+                  <button class="ghost" on:click={() => revealSelectedAudio(selectedAudioPath)}>フォルダで表示</button>
+                </div>
+              </div>
+            {/if}
           </div>
-        {:else}
-          <div>
-            <div class="section-title">生成済みファイル · {audioRecords.length}</div>
-            <div class="audio-list">
-              {#each audioRecords as record}
-                <article class:active={selectedAudioPath === record.path}>
-                  <div>
-                    <strong><span class="kind-badge">{record.kind}</span>{record.label}</strong>
-                    <span>{record.path}</span>
-                  </div>
-                  <div class="actions">
-                    <button on:click={() => (selectedAudioPath = record.path)}>再生</button>
-                    <button disabled={!nativeFileApi} on:click={() => revealSelectedAudio(record.path)}>表示</button>
-                    <button class="danger" disabled={!nativeFileApi} on:click={() => deleteGeneratedAudio(record)}>削除</button>
-                  </div>
-                </article>
-              {/each}
-            </div>
+
+          <div class="audio-list">
+            {#each audioRecords as record}
+              <article class:active={selectedAudioPath === record.path}>
+                <div class="audio-info">
+                  <strong><span class="kind-badge" data-kind={record.kind}>{record.kind}</span>{record.label}</strong>
+                  <span class="mono">{record.path}</span>
+                </div>
+                <div class="actions">
+                  <button class="ghost" on:click={() => (selectedAudioPath = record.path)}>再生</button>
+                  <button class="ghost" disabled={!nativeFileApi} on:click={() => revealSelectedAudio(record.path)}>表示</button>
+                  <button class="ghost danger" disabled={!nativeFileApi} on:click={() => deleteGeneratedAudio(record)}>削除</button>
+                </div>
+              </article>
+            {/each}
           </div>
-        {/if}
-      </section>
+        </section>
+      {/if}
 
     {:else if activeView === "prompt"}
-      <section class="prompt-layout">
-        <form class="controls">
-          <div class="section-title">プロンプト条件</div>
+      <section class="prompt-view">
+        <form class="prompt-controls">
+          <div class="eyebrow">プロンプト条件</div>
           <label>元資料種別<select bind:value={promptOptions.sourceType}>{#each Object.keys(sourceTypeInstructions) as source}<option>{source}</option>{/each}</select></label>
           <label>対象読者<input bind:value={promptOptions.audience} /></label>
           <label>文体<input bind:value={promptOptions.style} /></label>
           <label>長さ<input bind:value={promptOptions.length} /></label>
           <label>目的<textarea style="min-height:90px" bind:value={promptOptions.purpose}></textarea></label>
           <button type="button" class="primary" on:click={copyPrompt}>{copied ? "✓ コピー済み" : "プロンプトをコピー"}</button>
-          <aside class="notice">
-            <strong>利用上の注意</strong>
-            <ul>
-              <li>外部AIサービス (ChatGPT, Claude, Gemini など) にプロンプトを貼り付けると、入力内容がサービス提供者のサーバーに送信されます。機密情報や社外秘資料を扱う際は、各サービスの利用規約・データ取り扱い方針を必ず確認してください。</li>
+
+          <details class="panel-disclosure muted">
+            <summary>
+              <span>利用上の注意</span>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </summary>
+            <ul class="notice-list">
+              <li>外部AIサービス（ChatGPT, Claude, Gemini など）にプロンプトを貼り付けると、入力内容がサービス提供者のサーバーに送信されます。機密情報や社外秘資料を扱う際は、各サービスの利用規約・データ取り扱い方針を必ず確認してください。</li>
               <li>元資料の著作権は著作者に帰属します。原稿化・音声化する前に、複製・翻案・公衆送信の権利範囲を確認してください。</li>
-              <li>音声クローン (参照音声) を用いる場合は、その話者本人から明示的な同意を得てください。無断利用は肖像権・人格権の侵害となる可能性があります。</li>
-              <li>生成された音声の商用利用は、モデル提供元のライセンス (MOSS-TTS-Nano は研究目的前提) に従ってください。</li>
+              <li>音声クローン（参照音声）を用いる場合は、その話者本人から明示的な同意を得てください。</li>
+              <li>生成された音声の商用利用は、モデル提供元のライセンス（MOSS-TTS-Nano は研究目的前提）に従ってください。</li>
             </ul>
-          </aside>
+          </details>
         </form>
         <pre class="prompt-preview">{promptText}</pre>
       </section>
 
     {:else if activeView === "settings"}
-      <section class="settings-panel">
-        <div class="generation-head">
-          <div>
-            <h2>設定</h2>
-            <p>{settingsFilePath || "ブラウザ実行中は localStorage に保存されます。"}</p>
-          </div>
+      <section class="settings-view">
+        <div class="settings-head">
+          <small class="mono">{settingsFilePath || "ブラウザ実行中は localStorage に保存されます"}</small>
           <div class="actions">
-            <button disabled={!nativeFileApi} on:click={loadPersistedSettings}>再読み込み</button>
+            <button class="ghost" disabled={!nativeFileApi} on:click={loadPersistedSettings}>再読み込み</button>
             <button class="primary" disabled={!nativeFileApi || Boolean(settingsError)} on:click={saveSettings}>設定保存</button>
           </div>
         </div>
@@ -1609,14 +1673,14 @@
     {:else if activeView === "logs"}
       <section class="log-list">
         <div class="log-toolbar">
-          <small>{$generationLogsStore.length} 件 (最新200件)</small>
-          <div>
+          <small>{$generationLogsStore.length} 件（最新200件）</small>
+          <div class="actions">
             <button class="ghost" type="button" on:click={exportLogsToFile} disabled={$generationLogsStore.length === 0 || !nativeFileApi}>ファイルへ保存</button>
             <button class="ghost" type="button" on:click={clearLogs} disabled={$generationLogsStore.length === 0}>クリア</button>
           </div>
         </div>
         {#if $generationLogsStore.length === 0}
-          <p class="empty">ログはまだありません。</p>
+          <p class="empty">ログはまだありません</p>
         {:else}
           {#each $generationLogsStore as log}
             <article class={log.level}><time>{log.at}</time><span>{log.message}</span></article>
