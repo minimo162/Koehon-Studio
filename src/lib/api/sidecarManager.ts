@@ -44,16 +44,15 @@ export function deriveCodecDir(modelDir: string): string {
 }
 
 export async function ensureSidecar(events: SidecarEvents = {}): Promise<void> {
-  if (await isHealthy()) {
-    events.onStatus?.("running");
-    return;
-  }
+  // Go through startSidecar so the whole isHealthy-then-spawn flow is tracked
+  // by `starting`. Otherwise a stopSidecar that lands during the initial
+  // `await isHealthy()` window sees `starting === undefined` and returns a
+  // no-op — then the spawn proceeds unobserved and the caller (e.g. model
+  // download) races against an alive sidecar mmapping the model files.
   return startSidecar(events);
 }
 
 export async function startSidecar(events: SidecarEvents = {}): Promise<void> {
-  // Every spawn path funnels through here and records itself in `starting`
-  // so stopSidecar can reliably await an in-flight start before killing.
   if (starting) return starting;
   starting = runStart(events).finally(() => {
     starting = undefined;
@@ -66,7 +65,7 @@ async function runStart(events: SidecarEvents): Promise<void> {
     events.onLog?.("info", "ブラウザ実行中のため sidecar 自動起動はスキップしました。");
     return;
   }
-  if (child && (await isHealthy())) {
+  if (await isHealthy()) {
     events.onStatus?.("running");
     return;
   }
