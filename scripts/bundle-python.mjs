@@ -123,6 +123,49 @@ function pythonExe(pythonDir) {
   return join(pythonDir, "bin", "python3");
 }
 
+function resolveSitePackages(pythonDir) {
+  // python-build-standalone layouts:
+  //   Windows:  <pythonDir>/Lib/site-packages/
+  //   POSIX:    <pythonDir>/lib/python3.X/site-packages/
+  if (platform() === "win32") {
+    return join(pythonDir, "Lib", "site-packages");
+  }
+  const libDir = join(pythonDir, "lib");
+  if (!existsSync(libDir)) {
+    throw new Error(`site-packages not found under ${pythonDir}`);
+  }
+  const pyDir = readdirSync(libDir).find((n) => /^python3\.\d+$/.test(n));
+  if (!pyDir) {
+    throw new Error(`could not locate python3.X directory under ${libDir}`);
+  }
+  return join(libDir, pyDir, "site-packages");
+}
+
+function installFromGitSubdir(gitUrl, subdir, siteDir) {
+  // Shallow-clone the repo into the bundle cache, then recursively copy
+  // the single package directory into site-packages. Bypasses the
+  // upstream's pyproject/setup.py entirely so we don't inherit their
+  // packaging quirks (flat-layout discovery errors, pinned
+  // torch>=2.10, etc.).
+  const cloneDir = join(CACHE_DIR, subdir);
+  if (existsSync(cloneDir)) {
+    rmSync(cloneDir, { recursive: true, force: true });
+  }
+  log(`cloning ${gitUrl} → ${cloneDir}`);
+  run("git", ["clone", "--depth", "1", "--filter=blob:none", gitUrl, cloneDir]);
+
+  const srcPkgDir = join(cloneDir, subdir);
+  if (!existsSync(srcPkgDir)) {
+    throw new Error(`expected package directory ${subdir} not found in ${gitUrl}`);
+  }
+  const dstPkgDir = join(siteDir, subdir);
+  if (existsSync(dstPkgDir)) {
+    rmSync(dstPkgDir, { recursive: true, force: true });
+  }
+  log(`copying ${srcPkgDir} → ${dstPkgDir}`);
+  cpSync(srcPkgDir, dstPkgDir, { recursive: true });
+}
+
 // --- main ---------------------------------------------------------------
 
 function main() {
@@ -201,30 +244,24 @@ function main() {
     { env: envForPip },
   );
 
-  // irodori-tts' pyproject lists torch>=2.10.0 (upstream hasn't pinned
-  // exactly). Installing with --no-deps forces it to use the CPU torch
-  // we just staged instead of trying to upgrade.
-  run(
-    py,
-    [
-      "-m",
-      "pip",
-      "install",
-      "--no-deps",
-      "git+https://github.com/Aratako/Irodori-TTS.git",
-    ],
-    { env: envForPip },
+  // Irodori's repo has `irodori_tts/` and `configs/` at the top level,
+  // which makes setuptools' flat-layout auto-discovery refuse the
+  // install with "Multiple top-level packages discovered". We don't
+  // actually need a wheel — the server imports `irodori_tts` only —
+  // so skip pip packaging and copy the package directory straight into
+  // the bundle's site-packages. Same for DACVAE (its `dacvae/`
+  // subdirectory is the importable package).
+  const siteDir = resolveSitePackages(pythonDir);
+  log(`site-packages → ${siteDir}`);
+  installFromGitSubdir(
+    "https://github.com/Aratako/Irodori-TTS.git",
+    "irodori_tts",
+    siteDir,
   );
-  run(
-    py,
-    [
-      "-m",
-      "pip",
-      "install",
-      "--no-deps",
-      "git+https://github.com/facebookresearch/dacvae.git",
-    ],
-    { env: envForPip },
+  installFromGitSubdir(
+    "https://github.com/facebookresearch/dacvae.git",
+    "dacvae",
+    siteDir,
   );
 
   // 3. Copy server.py into the bundle root alongside python/

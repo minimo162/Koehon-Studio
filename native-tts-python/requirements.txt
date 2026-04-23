@@ -23,7 +23,10 @@ safetensors==0.4.5
 huggingface-hub==0.26.5
 tqdm==4.67.1
 
-# --- Irodori + DACVAE -------------------------------------------------
-# Installed from Git at bundle time (see scripts/bundle-python.mjs):
-#   irodori-tts @ git+https://github.com/Aratako/Irodori-TTS.git
-#   dacvae     @ git+https://github.com/facebookresearch/dacvae.git
+# --- DACVAE runtime deps ---------------------------------------------
+# dacvae/__init__.py pulls in audiotools at import time, so these have
+# to be present even though we copy the package by hand rather than
+# running its setup.py.
+einops==0.8.0
+descript-audiotools==0.7.2
+argbind==0.3.9
