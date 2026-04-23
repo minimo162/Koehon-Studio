@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, io::Write, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf, process::Command};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -24,6 +24,13 @@ struct WavMergeOutput {
     channels: u16,
     bits_per_sample: u16,
     duration_ms: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortCleanupResult {
+    killed_pids: Vec<u32>,
+    errors: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -110,6 +117,114 @@ fn merge_wav_files(
         bits_per_sample,
         duration_ms,
     })
+}
+
+#[tauri::command]
+fn clear_stale_sidecar_port(port: u16) -> Result<PortCleanupResult, String> {
+    if port != 18_083 {
+        return Err("sidecar以外のポートは停止できません。".to_string());
+    }
+
+    clear_listening_processes_on_port(port)
+}
+
+#[cfg(windows)]
+fn clear_listening_processes_on_port(port: u16) -> Result<PortCleanupResult, String> {
+    let output = Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+        .map_err(|error| format!("netstatを実行できませんでした: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "netstatが失敗しました: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let pids = parse_netstat_listening_pids(&stdout, port);
+    let mut killed_pids = Vec::new();
+    let mut errors = Vec::new();
+
+    for pid in pids {
+        let result = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output();
+        match result {
+            Ok(output) if output.status.success() => killed_pids.push(pid),
+            Ok(output) => errors.push(format!(
+                "PID {pid} を停止できませんでした: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            Err(error) => errors.push(format!("PID {pid} の停止に失敗しました: {error}")),
+        }
+    }
+
+    Ok(PortCleanupResult {
+        killed_pids,
+        errors,
+    })
+}
+
+#[cfg(not(windows))]
+fn clear_listening_processes_on_port(port: u16) -> Result<PortCleanupResult, String> {
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(format!("lsof -tiTCP:{port} -sTCP:LISTEN 2>/dev/null"))
+        .output()
+        .map_err(|error| format!("lsofを実行できませんでした: {error}"))?;
+    let mut killed_pids = Vec::new();
+    let mut errors = Vec::new();
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(pid) = line.trim().parse::<u32>() else {
+            continue;
+        };
+        let result = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output();
+        match result {
+            Ok(output) if output.status.success() => killed_pids.push(pid),
+            Ok(output) => errors.push(format!(
+                "PID {pid} を停止できませんでした: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            Err(error) => errors.push(format!("PID {pid} の停止に失敗しました: {error}")),
+        }
+    }
+
+    Ok(PortCleanupResult {
+        killed_pids,
+        errors,
+    })
+}
+
+#[cfg(windows)]
+fn parse_netstat_listening_pids(output: &str, port: u16) -> Vec<u32> {
+    let mut pids = std::collections::BTreeSet::new();
+    let port_suffix = format!(":{port}");
+
+    for line in output.lines() {
+        let columns: Vec<&str> = line.split_whitespace().collect();
+        if columns.len() < 5 {
+            continue;
+        }
+        if !columns[0].eq_ignore_ascii_case("TCP") {
+            continue;
+        }
+        if !columns[1].ends_with(&port_suffix) {
+            continue;
+        }
+        if !columns[3].eq_ignore_ascii_case("LISTENING") {
+            continue;
+        }
+        if let Ok(pid) = columns[4].parse::<u32>() {
+            pids.insert(pid);
+        }
+    }
+
+    pids.into_iter().collect()
 }
 
 fn read_wav(path: PathBuf) -> Result<WavData, String> {
@@ -226,7 +341,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![merge_wav_files])
+        .invoke_handler(tauri::generate_handler![
+            merge_wav_files,
+            clear_stale_sidecar_port
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -303,8 +421,7 @@ mod tests {
     fn deserializes_camelcase_silence_input() {
         // Regression: frontend sends `durationMs`, enum-level rename_all
         // doesn't reach variant fields — we re-declared it on the variant.
-        let json =
-            r#"[{"type":"file","path":"a.wav"},{"type":"silence","durationMs":250}]"#;
+        let json = r#"[{"type":"file","path":"a.wav"},{"type":"silence","durationMs":250}]"#;
         let parsed: Vec<WavMergeInput> = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.len(), 2);
         match &parsed[1] {

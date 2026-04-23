@@ -1,4 +1,5 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import { get } from "svelte/store";
 import { appSettingsStore } from "../stores/appSettings";
 import { isTauriRuntime } from "./fileAccess";
@@ -23,7 +24,14 @@ let stopping = false;
 const sidecarProgram = "../native-tts/sidecars/koehon-tts-sidecar";
 const SIDECAR_BOOT_TIMEOUT_MS = 120000;
 const SIDECAR_PORT_PROBE_TIMEOUT_MS = 1500;
+const SIDECAR_STALE_GRACE_MS = 5000;
+const SIDECAR_PORT = 18083;
 const SIDECAR_HEALTH_URL = "http://127.0.0.1:18083/health";
+
+type PortCleanupResult = {
+  killedPids: number[];
+  errors: string[];
+};
 
 function buildArgs(): string[] {
   const settings = get(appSettingsStore);
@@ -93,10 +101,21 @@ async function runStart(events: SidecarEvents): Promise<void> {
     events.onStatus?.("starting");
     events.onLog?.(
       "info",
-      "TTS sidecar のポートは使用中です。既存プロセスの /health 応答を待ちます。",
+      "TTS sidecar のポートは使用中です。既存プロセスの /health 応答を短時間待ちます。",
     );
-    await waitForHealth(events);
-    return;
+    const becameHealthy = await waitForHealth(
+      events,
+      undefined,
+      SIDECAR_STALE_GRACE_MS,
+    );
+    if (becameHealthy) return;
+    await clearStalePort(events);
+    await delay(1000);
+    const recoveredHealth = await probeHealth(events);
+    if (recoveredHealth) {
+      events.onStatus?.(recoveredHealth.ok ? "running" : "loading");
+      return;
+    }
   }
 
   events.onStatus?.("starting");
@@ -131,7 +150,12 @@ async function runStart(events: SidecarEvents): Promise<void> {
     `TTS sidecar を起動しました (${args.join(" ") || "既定設定"})。`,
   );
   try {
-    await waitForHealth(events, () => exitMessage);
+    const ready = await waitForHealth(events, () => exitMessage);
+    if (!ready) {
+      throw new Error(
+        `TTS sidecar の /health 確認が ${Math.round(SIDECAR_BOOT_TIMEOUT_MS / 1000)} 秒以内に完了しませんでした。`,
+      );
+    }
   } finally {
     awaitingHealth = false;
   }
@@ -175,9 +199,10 @@ export async function restartSidecar(
 async function waitForHealth(
   events: SidecarEvents,
   getExitMessage: () => string = () => "",
-): Promise<void> {
+  timeoutMs = SIDECAR_BOOT_TIMEOUT_MS,
+): Promise<boolean> {
   const started = Date.now();
-  while (Date.now() - started < SIDECAR_BOOT_TIMEOUT_MS) {
+  while (Date.now() - started < timeoutMs) {
     const exitMessage = getExitMessage();
     if (exitMessage) {
       events.onStatus?.("failed");
@@ -186,14 +211,11 @@ async function waitForHealth(
     const health = await probeHealth(events);
     if (health) {
       events.onStatus?.(health.ok ? "running" : "loading");
-      return;
+      return true;
     }
     await delay(300);
   }
-  events.onStatus?.("failed");
-  throw new Error(
-    `TTS sidecar の /health 確認が ${Math.round(SIDECAR_BOOT_TIMEOUT_MS / 1000)} 秒以内に完了しませんでした。`,
-  );
+  return false;
 }
 
 let lastLoggedEngine: string | undefined;
@@ -242,6 +264,34 @@ async function isSidecarPortReachable(): Promise<boolean> {
     return error instanceof DOMException && error.name === "AbortError";
   } finally {
     globalThis.clearTimeout(timeout);
+  }
+}
+
+async function clearStalePort(events: SidecarEvents): Promise<void> {
+  events.onLog?.(
+    "info",
+    "TTS sidecar の /health が返らないため、残存プロセスを停止します。",
+  );
+  try {
+    const result = await invoke<PortCleanupResult>("clear_stale_sidecar_port", {
+      port: SIDECAR_PORT,
+    });
+    if (result.killedPids.length > 0) {
+      events.onLog?.(
+        "info",
+        `TTS sidecar の残存プロセスを停止しました: PID ${result.killedPids.join(", ")}`,
+      );
+    } else {
+      events.onLog?.("info", "停止対象の残存プロセスは見つかりませんでした。");
+    }
+    for (const error of result.errors) {
+      events.onLog?.("error", error);
+    }
+  } catch (error) {
+    events.onLog?.(
+      "error",
+      `TTS sidecar の残存プロセス停止に失敗しました: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
