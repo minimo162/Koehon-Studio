@@ -161,10 +161,11 @@ class IrodoriEngine:
             SamplingRequest,
         )
 
+        codec_location = _resolve_codec_location(self._codec_repo)
         key = RuntimeKey(
             checkpoint=str(self._checkpoint),
             model_device=self._device,
-            codec_repo=self._codec_repo,
+            codec_repo=codec_location,
             model_precision=self._precision,
             codec_device=self._device,
             codec_precision=self._precision,
@@ -194,7 +195,7 @@ class IrodoriEngine:
                 code="engine.ready",
                 message=(
                     f"Irodori-TTS 読込済 · checkpoint={self._checkpoint.name} · "
-                    f"codec={self._codec_repo} · steps={self._num_steps} · "
+                    f"codec={codec_location} · steps={self._num_steps} · "
                     f"device={self._device}/{self._precision}"
                 ),
             )
@@ -355,6 +356,18 @@ def _default_model_dir() -> Path:
     else:
         base = Path.home() / ".local/share"
     return base / "studio.koehon.app" / "models" / "irodori-tts"
+
+
+def _resolve_codec_location(value: str) -> str:
+    location = str(value).strip()
+    if location.startswith("hf://"):
+        return location
+    path = Path(location)
+    if path.is_dir():
+        weights = path / "weights.pth"
+        if weights.is_file():
+            return str(weights)
+    return location
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
