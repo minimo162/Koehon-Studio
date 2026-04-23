@@ -2,9 +2,9 @@ import { Command, type Child } from "@tauri-apps/plugin-shell";
 import { get } from "svelte/store";
 import { appSettingsStore } from "../stores/appSettings";
 import { isTauriRuntime } from "./fileAccess";
-import { ttsClient } from "./ttsClient";
+import { ttsClient, type TtsHealth } from "./ttsClient";
 
-export type SidecarStatus = "idle" | "starting" | "running" | "failed" | "stopped";
+export type SidecarStatus = "idle" | "starting" | "loading" | "running" | "failed" | "stopped";
 
 type SidecarEvents = {
   onStatus?: (status: SidecarStatus) => void;
@@ -71,8 +71,9 @@ async function runStart(events: SidecarEvents): Promise<void> {
     events.onLog?.("info", "ブラウザ実行中のため sidecar 自動起動はスキップしました。");
     return;
   }
-  if (await isHealthy()) {
-    events.onStatus?.("running");
+  const existingHealth = await probeHealth(events);
+  if (existingHealth) {
+    events.onStatus?.(existingHealth.ok ? "running" : "loading");
     return;
   }
 
@@ -116,9 +117,10 @@ export async function restartSidecar(events: SidecarEvents = {}): Promise<void> 
 
 async function waitForHealth(events: SidecarEvents): Promise<void> {
   const started = Date.now();
-  while (Date.now() - started < 8000) {
-    if (await isHealthy(events)) {
-      events.onStatus?.("running");
+  while (Date.now() - started < 30000) {
+    const health = await probeHealth(events);
+    if (health) {
+      events.onStatus?.(health.ok ? "running" : "loading");
       return;
     }
     await delay(300);
@@ -128,22 +130,27 @@ async function waitForHealth(events: SidecarEvents): Promise<void> {
 }
 
 let lastLoggedEngine: string | undefined;
+let lastLoggedDiagnostics: string | undefined;
 
-async function isHealthy(events: SidecarEvents = {}): Promise<boolean> {
+async function probeHealth(events: SidecarEvents = {}): Promise<TtsHealth | undefined> {
   try {
     const health = await ttsClient.health();
-    if (health.ok && health.engine !== lastLoggedEngine) {
+    if (health.engine !== lastLoggedEngine) {
       lastLoggedEngine = health.engine;
       events.onLog?.("info", `TTSエンジン: ${health.engine_name ?? health.engine}`);
+    }
+    const diagnosticsKey = JSON.stringify(health.diagnostics ?? []);
+    if (diagnosticsKey !== lastLoggedDiagnostics) {
+      lastLoggedDiagnostics = diagnosticsKey;
       for (const diag of health.diagnostics ?? []) {
         const level = diag.severity === "error" ? "error" : "info";
         const suffix = diag.hint ? ` (${diag.hint})` : "";
         events.onLog?.(level, `${diag.message}${suffix}`);
       }
     }
-    return health.ok;
+    return health;
   } catch {
-    return false;
+    return undefined;
   }
 }
 

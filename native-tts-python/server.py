@@ -94,6 +94,7 @@ class IrodoriEngine:
         checkpoint: Path,
         codec_repo: str,
         num_steps: int,
+        cpu_threads: int,
         device: str,
         precision: str,
         max_ref_seconds: float,
@@ -101,6 +102,7 @@ class IrodoriEngine:
         self._checkpoint = checkpoint
         self._codec_repo = codec_repo
         self._num_steps = num_steps
+        self._cpu_threads = cpu_threads
         self._device = device
         self._precision = precision
         self._max_ref_seconds = max_ref_seconds
@@ -145,6 +147,13 @@ class IrodoriEngine:
                 f"checkpoint not found: {self._checkpoint}. "
                 "モデルディレクトリに model.safetensors を配置してください。"
             )
+
+        if self._cpu_threads > 0:
+            try:
+                import torch
+                torch.set_num_threads(self._cpu_threads)
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to configure torch cpu threads")
 
         from irodori_tts.inference_runtime import (  # type: ignore
             InferenceRuntime,
@@ -409,22 +418,11 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint=checkpoint,
         codec_repo=args.codec_dir,
         num_steps=args.num_steps,
+        cpu_threads=args.cpu_threads,
         device=args.device,
         precision=args.precision,
         max_ref_seconds=args.max_ref_seconds,
     )
-
-    # Load on a worker thread so /health comes online immediately — the
-    # weights take 10-30s on CPU and the frontend polls /health to drive
-    # the first-run UI.
-    threading.Thread(target=engine.load, name="engine-load", daemon=True).start()
-
-    if args.cpu_threads > 0:
-        try:
-            import torch
-            torch.set_num_threads(args.cpu_threads)
-        except Exception:  # noqa: BLE001
-            pass
 
     app = build_app(engine)
 
@@ -434,6 +432,13 @@ def main(argv: list[str] | None = None) -> int:
         f"engine={IrodoriEngine.ENGINE_ID}",
         flush=True,
     )
+
+    # Load on a worker thread so /health comes online immediately — the
+    # weights take 10-30s on CPU and the frontend polls /health to drive
+    # the first-run UI. Keep heavyweight imports out of the main thread
+    # before uvicorn starts listening.
+    threading.Thread(target=engine.load, name="engine-load", daemon=True).start()
+
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
     return 0
 

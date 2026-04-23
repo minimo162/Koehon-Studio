@@ -175,6 +175,7 @@
   const sidecarLabel: Record<SidecarStatus, string> = {
     idle: "待機中",
     starting: "起動中",
+    loading: "読込中",
     running: "接続済み",
     failed: "接続失敗",
     stopped: "停止済み"
@@ -182,6 +183,7 @@
 
   function sidecarKind(status: SidecarStatus): string {
     if (status === "running") return "ready";
+    if (status === "loading") return "starting";
     if (status === "starting") return "starting";
     if (status === "failed") return "failed";
     return "idle";
@@ -209,7 +211,7 @@
   async function refreshEngineId(): Promise<void> {
     try {
       const health = await ttsClient.health();
-      engineId = health.ok ? health.engine : undefined;
+      engineId = health.engine;
     } catch {
       engineId = undefined;
     }
@@ -1139,7 +1141,7 @@
             </p>
             <div class="setup-actions">
               <button class="primary big" disabled={downloadRunning} on:click={runAutoSetup}>
-                {downloadRunning ? "セットアップ中…" : setupIsReRun ? "モデルを再ダウンロード" : "セットアップを実行"}
+                {downloadRunning ? "セットアップ中…" : setupIsReRun ? "セットアップを確認" : "セットアップを実行"}
               </button>
               {#if downloadRunning}<button class="ghost" on:click={cancelDownload}>中止</button>{/if}
             </div>

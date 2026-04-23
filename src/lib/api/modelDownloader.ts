@@ -1,5 +1,5 @@
 import { appDataDir, join } from "@tauri-apps/api/path";
-import { create, mkdir, remove, exists } from "@tauri-apps/plugin-fs";
+import { create, mkdir, remove, exists, stat } from "@tauri-apps/plugin-fs";
 
 import { isTauriRuntime } from "./fileAccess";
 
@@ -107,6 +107,28 @@ export async function downloadHuggingFaceRepo(
     const parent = destination.slice(0, destination.lastIndexOf(separator(destination)));
     if (parent && parent !== plan.destinationDir) {
       await mkdir(parent, { recursive: true });
+    }
+
+    const expectedSize = file.size || 0;
+    try {
+      const info = await stat(destination);
+      if (info.isFile && info.size === expectedSize) {
+        overallBytes += expectedSize;
+        options.onProgress?.({
+          stage: "downloading",
+          repo: plan.repo,
+          currentFile: file.path,
+          fileIndex: index,
+          fileCount: plan.files.length,
+          fileBytes: expectedSize,
+          fileTotalBytes: expectedSize,
+          overallBytes,
+          overallTotalBytes: plan.totalBytes
+        });
+        continue;
+      }
+    } catch {
+      // Missing or unreadable files fall through to a fresh download.
     }
 
     let response: Response;
