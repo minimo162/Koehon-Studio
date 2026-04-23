@@ -257,6 +257,27 @@
     }
   }
 
+  /**
+   * ONNX Runtime memory-maps model weight files (e.g. moss_tts_global_shared.data),
+   * so on Windows overwriting them while the sidecar is still running fails with
+   * ERROR_USER_MAPPED_FILE (os error 1224). Stop the sidecar and give the kernel
+   * a moment to unmap sections before we touch the files.
+   */
+  async function stopSidecarForModelWrite(): Promise<void> {
+    if (!nativeFileApi) return;
+    try {
+      logGeneration("info", "モデルファイル書き込みのため sidecar を一時停止します…");
+      await stopSidecar({
+        onStatus: (status) => (sidecarStatus = status),
+        onLog: logGeneration
+      });
+    } catch (error) {
+      logGeneration("error", error instanceof Error ? error.message : String(error));
+    }
+    // Small grace period so Windows finalizes section unmap before we write.
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+
   async function generateAllWithSidecar(): Promise<void> {
     if (!(await startNativeSidecar())) return;
     await generateAll();
@@ -631,6 +652,7 @@
       overallTotalBytes: 0
     };
     logGeneration("info", `${preset.label} のダウンロードを開始します → ${targetDir}`);
+    await stopSidecarForModelWrite();
     try {
       const plan = await planDownload(preset.repo, targetDir);
       downloadProgress = { ...downloadProgress, fileCount: plan.files.length, overallTotalBytes: plan.totalBytes };
@@ -654,6 +676,13 @@
     } finally {
       downloadRunning = false;
       downloadAbort = undefined;
+      // Always bring the sidecar back so the user isn't left without TTS —
+      // whether we succeeded (to pick up the new model) or failed (to restore prior state).
+      try {
+        await restartNativeSidecar();
+      } catch (error) {
+        logGeneration("error", error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
@@ -671,6 +700,8 @@
     downloadAbort = new AbortController();
     autoSetupProgress = undefined;
     logGeneration("info", "モデル自動セットアップを開始します…");
+    await stopSidecarForModelWrite();
+    let succeeded = false;
     try {
       const result = await autoSetupModels({
         signal: downloadAbort.signal,
@@ -691,6 +722,7 @@
         reportError("設定の自動保存に失敗しました", error);
       }
       logGeneration("info", `モデルを ${result.modelDirectory} に配置しました。sidecar を再起動します…`);
+      succeeded = true;
       await restartNativeSidecar();
       await refreshEngineId();
       showNotification("モデルのセットアップが完了しました。");
@@ -703,6 +735,15 @@
       downloadRunning = false;
       downloadAbort = undefined;
       autoSetupProgress = undefined;
+      // If we bailed before reaching restartNativeSidecar, bring the sidecar
+      // back so the user isn't left in a stopped state.
+      if (!succeeded) {
+        try {
+          await startNativeSidecar();
+        } catch (error) {
+          logGeneration("error", error instanceof Error ? error.message : String(error));
+        }
+      }
     }
   }
 
