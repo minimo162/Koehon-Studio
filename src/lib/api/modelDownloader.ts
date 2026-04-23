@@ -1,5 +1,5 @@
 import { appDataDir, join } from "@tauri-apps/api/path";
-import { create, mkdir } from "@tauri-apps/plugin-fs";
+import { create, mkdir, remove, exists } from "@tauri-apps/plugin-fs";
 
 import { isTauriRuntime } from "./fileAccess";
 
@@ -126,9 +126,10 @@ export async function downloadHuggingFaceRepo(
       Number(response.headers.get("Content-Length")) || file.size || 0;
 
     const handle = await create(destination);
+    let fileBytes = 0;
+    let completed = false;
     try {
       const reader = response.body.getReader();
-      let fileBytes = 0;
       while (true) {
         if (options.signal?.aborted) {
           throw new ModelDownloadError("ダウンロードが中断されました。");
@@ -152,8 +153,28 @@ export async function downloadHuggingFaceRepo(
           });
         }
       }
+      // A prematurely-closed stream exits the reader loop silently with
+      // `done=true`, which previously left a truncated file on disk that
+      // ONNX would then fail to load ("file_length: 27727023 offset: 53M").
+      // Insist the expected byte count matches before calling it success.
+      if (totalForFile > 0 && fileBytes !== totalForFile) {
+        throw new ModelDownloadError(
+          `${file.path}: サイズ不一致 (期待 ${totalForFile} bytes, 受信 ${fileBytes} bytes)。通信が途中で切断された可能性があります。もう一度実行してください。`
+        );
+      }
+      completed = true;
     } finally {
       await handle.close();
+      if (!completed) {
+        // Partial file on disk would masquerade as a complete download on
+        // the next run (and load truncated into ORT). Remove it so a
+        // retry starts clean.
+        try {
+          if (await exists(destination)) await remove(destination);
+        } catch {
+          // Best-effort cleanup; leave the file if remove also fails.
+        }
+      }
     }
   }
 

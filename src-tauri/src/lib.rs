@@ -4,8 +4,16 @@ use std::{fs, io::Write, path::PathBuf};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum WavMergeInput {
-    File { path: String },
-    Silence { duration_ms: u32 },
+    File {
+        path: String,
+    },
+    // `rename_all` on the enum itself only renames variant names; fields
+    // inside struct-like variants keep their Rust snake_case unless we
+    // re-declare rename_all on the variant. Frontend sends `durationMs`.
+    #[serde(rename_all = "camelCase")]
+    Silence {
+        duration_ms: u32,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -289,6 +297,20 @@ mod tests {
         assert!(error.contains("WAV形式が一致しません"));
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deserializes_camelcase_silence_input() {
+        // Regression: frontend sends `durationMs`, enum-level rename_all
+        // doesn't reach variant fields — we re-declared it on the variant.
+        let json =
+            r#"[{"type":"file","path":"a.wav"},{"type":"silence","durationMs":250}]"#;
+        let parsed: Vec<WavMergeInput> = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        match &parsed[1] {
+            WavMergeInput::Silence { duration_ms } => assert_eq!(*duration_ms, 250),
+            other => panic!("expected Silence, got {other:?}"),
+        }
     }
 
     fn temp_dir(name: &str) -> PathBuf {
