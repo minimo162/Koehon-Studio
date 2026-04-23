@@ -22,8 +22,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import soundfile as sf
+print("koehon python sidecar bootstrap", flush=True)
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -255,6 +255,7 @@ class IrodoriEngine:
         output_path = Path(req.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # Match the old Rust sidecar: mono PCM16 WAV at the codec's native rate.
+        import soundfile as sf
         sf.write(str(output_path), samples, sample_rate, subtype="PCM_16")
 
         return SynthesizeResponse(
@@ -266,6 +267,7 @@ class IrodoriEngine:
         )
 
     def _run_inference(self, req: SynthesizeRequest) -> tuple[np.ndarray, int]:
+        import numpy as np
         import torch
 
         # Let Irodori pick its own seed if none supplied — its sampler uses

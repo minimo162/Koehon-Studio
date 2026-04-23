@@ -69,6 +69,16 @@ function main() {
     }
   }
   console.log(`[sidecar] copied → ${dstBinary}`);
+
+  const runtimeDir = resolve(repoRoot, "src-tauri/python-runtime");
+  const runtimeServer = resolve(runtimeDir, "server.py");
+  if (existsSync(runtimeDir)) {
+    copyFileSync(
+      resolve(repoRoot, "native-tts-python/server.py"),
+      runtimeServer,
+    );
+    console.log(`[sidecar] synced Python server → ${runtimeServer}`);
+  }
 }
 
 main();

@@ -13,7 +13,9 @@ type SidecarEvents = {
 
 let child: Child | undefined;
 let starting: Promise<void> | undefined;
+let stopping = false;
 const sidecarProgram = "../native-tts/sidecars/koehon-tts-sidecar";
+const SIDECAR_BOOT_TIMEOUT_MS = 120000;
 
 function buildArgs(): string[] {
   const settings = get(appSettingsStore);
@@ -80,11 +82,22 @@ async function runStart(events: SidecarEvents): Promise<void> {
   events.onStatus?.("starting");
   const args = buildArgs();
   const command = Command.sidecar(sidecarProgram, args);
-  command.stdout.on("data", (line) => events.onLog?.("info", String(line).trim()));
-  command.stderr.on("data", (line) => events.onLog?.("error", String(line).trim()));
+  let exitMessage = "";
+  command.stdout.on("data", makeStreamLogger(events, "info"));
+  command.stderr.on("data", makeStreamLogger(events, "error"));
+  command.on("close", (data) => {
+    child = undefined;
+    exitMessage = `TTS sidecar が終了しました (code=${data.code ?? "null"}, signal=${data.signal ?? "null"})。`;
+    events.onLog?.(stopping || data.code === 0 ? "info" : "error", exitMessage);
+    stopping = false;
+  });
+  command.on("error", (error) => {
+    exitMessage = `TTS sidecar の起動に失敗しました: ${error}`;
+    events.onLog?.("error", exitMessage);
+  });
   child = await command.spawn();
   events.onLog?.("info", `TTS sidecar を起動しました (${args.join(" ") || "既定設定"})。`);
-  await waitForHealth(events);
+  await waitForHealth(events, () => exitMessage);
 }
 
 export async function stopSidecar(events: SidecarEvents = {}): Promise<void> {
@@ -101,8 +114,10 @@ export async function stopSidecar(events: SidecarEvents = {}): Promise<void> {
   }
   if (!child) return;
   try {
+    stopping = true;
     await child.kill();
   } catch (error) {
+    stopping = false;
     events.onLog?.("error", error instanceof Error ? error.message : String(error));
   }
   child = undefined;
@@ -115,9 +130,14 @@ export async function restartSidecar(events: SidecarEvents = {}): Promise<void> 
   await startSidecar(events);
 }
 
-async function waitForHealth(events: SidecarEvents): Promise<void> {
+async function waitForHealth(events: SidecarEvents, getExitMessage: () => string = () => ""): Promise<void> {
   const started = Date.now();
-  while (Date.now() - started < 30000) {
+  while (Date.now() - started < SIDECAR_BOOT_TIMEOUT_MS) {
+    const exitMessage = getExitMessage();
+    if (exitMessage) {
+      events.onStatus?.("failed");
+      throw new Error(exitMessage);
+    }
     const health = await probeHealth(events);
     if (health) {
       events.onStatus?.(health.ok ? "running" : "loading");
@@ -126,7 +146,7 @@ async function waitForHealth(events: SidecarEvents): Promise<void> {
     await delay(300);
   }
   events.onStatus?.("failed");
-  throw new Error("TTS sidecar の /health 確認がタイムアウトしました。");
+  throw new Error(`TTS sidecar の /health 確認が ${Math.round(SIDECAR_BOOT_TIMEOUT_MS / 1000)} 秒以内に完了しませんでした。`);
 }
 
 let lastLoggedEngine: string | undefined;
@@ -156,4 +176,25 @@ async function probeHealth(events: SidecarEvents = {}): Promise<TtsHealth | unde
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function makeStreamLogger(
+  events: SidecarEvents,
+  level: "info" | "error"
+): (chunk: string) => void {
+  let buffer = "";
+  return (chunk: string) => {
+    buffer += String(chunk);
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) events.onLog?.(level, trimmed);
+    }
+    const trimmedBuffer = buffer.trim();
+    if (trimmedBuffer.length > 160) {
+      events.onLog?.(level, trimmedBuffer);
+      buffer = "";
+    }
+  };
 }
