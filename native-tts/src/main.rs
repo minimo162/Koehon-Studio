@@ -29,6 +29,7 @@ const PYTHON_CANDIDATES: &[&str] = &[
     "python-runtime/python/python.exe",
     "resources/python-runtime/python/python.exe",
     "resources/_up_/python-runtime/python/python.exe",
+    "../../src-tauri/python-runtime/python/python.exe",
     "../../python-runtime/python/python.exe",
     "../../../src-tauri/python-runtime/python/python.exe",
 ];
@@ -38,6 +39,7 @@ const PYTHON_CANDIDATES: &[&str] = &[
     "python-runtime/python/bin/python3",
     "resources/python-runtime/python/bin/python3",
     "resources/_up_/python-runtime/python/bin/python3",
+    "../../src-tauri/python-runtime/python/bin/python3",
     "../../python-runtime/python/bin/python3",
     "../../../src-tauri/python-runtime/python/bin/python3",
 ];
@@ -46,6 +48,7 @@ const SERVER_CANDIDATES: &[&str] = &[
     "python-runtime/server.py",
     "resources/python-runtime/server.py",
     "resources/_up_/python-runtime/server.py",
+    "../../src-tauri/python-runtime/server.py",
     "../../python-runtime/server.py",
     "../../../src-tauri/python-runtime/server.py",
 ];
@@ -65,11 +68,19 @@ fn resolve_bundle(exe_dir: &Path) -> Option<(PathBuf, PathBuf)> {
 /// companion Python sidecar at <repo>/native-tts-python. When running
 /// via `cargo run` from the crate dir, walk up until we find it.
 fn resolve_dev_fallback(exe_dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    if cfg!(windows) && env::var_os("KOEHON_ALLOW_SYSTEM_PYTHON").is_none() {
+        return None;
+    }
+
     let mut cursor = exe_dir;
     for _ in 0..6 {
         let candidate = cursor.join("native-tts-python").join("server.py");
         if candidate.is_file() {
-            let py = PathBuf::from(if cfg!(windows) { "python.exe" } else { "python3" });
+            let py = PathBuf::from(if cfg!(windows) {
+                "python.exe"
+            } else {
+                "python3"
+            });
             return Some((py, candidate));
         }
         cursor = cursor.parent()?;
@@ -92,7 +103,8 @@ fn main() -> ExitCode {
         None => {
             eprintln!(
                 "koehon-tts-sidecar: bundled Python runtime not found next to '{}'. \
-                 Expected python-runtime/ sibling directory with python/ and server.py.",
+                 Expected python-runtime/ or src-tauri/python-runtime with python/ and server.py. \
+                 On Windows, system python.exe fallback is disabled; set KOEHON_ALLOW_SYSTEM_PYTHON=1 only for local debugging.",
                 exe_dir.display()
             );
             return ExitCode::from(3);
@@ -100,6 +112,11 @@ fn main() -> ExitCode {
     };
 
     let forwarded: Vec<OsString> = env::args_os().skip(1).collect();
+    eprintln!(
+        "koehon-tts-sidecar: launching Python runtime: {} {}",
+        python.display(),
+        server.display()
+    );
 
     // The bundled python-build-standalone is self-contained (PYTHONHOME
     // relative to the exe), so we don't set PYTHONHOME here. We DO
