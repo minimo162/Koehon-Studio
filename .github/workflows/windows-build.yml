@@ -64,15 +64,13 @@ jobs:
                    Measure-Object -Property Length -Sum).Sum
           Write-Host ("python-runtime bundle: {0:N1} MB" -f ($size / 1MB))
 
-      - name: Build Tauri app
-        run: pnpm tauri build
-
-      - name: Upload MSI installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Koehon-Studio-Windows-MSI
-          path: src-tauri/target/release/bundle/msi/*.msi
-          if-no-files-found: warn
+      - name: Build Tauri app (NSIS only)
+        # --bundles nsis skips MSI. For bundles this large (python-runtime
+        # carries torch + transformers + irodori + dacvae), WiX light.exe
+        # spends 20-40 min CAB-compressing the resources, and NSIS LZMA
+        # produces a smaller installer anyway. Keep MSI build off until
+        # someone actually needs an MSI.
+        run: pnpm tauri build --bundles nsis
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4

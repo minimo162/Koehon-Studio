@@ -299,23 +299,72 @@ function main() {
 }
 
 function pruneBundle(root) {
-  const removeRecursive = (dir, matcher) => {
+  // Aggressively trim files that are not used at runtime. Every MB we
+  // drop here is an MB that WiX light.exe / NSIS makensis doesn't have
+  // to CAB-compress when producing the final installer, which
+  // dominates end-to-end CI time for bundles of this size.
+  const removeDirsMatching = (dir, predicate) => {
     let removed = 0;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (matcher(entry.name)) {
+        if (predicate(entry.name, full)) {
           rmSync(full, { recursive: true, force: true });
           removed += 1;
           continue;
         }
-        removed += removeRecursive(full, matcher);
+        removed += removeDirsMatching(full, predicate);
       }
     }
     return removed;
   };
-  const cacheRemoved = removeRecursive(root, (name) => name === "__pycache__");
-  log(`pruned ${cacheRemoved} __pycache__ directories`);
+
+  const removeFilesMatching = (dir, predicate) => {
+    let removed = 0;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        removed += removeFilesMatching(full, predicate);
+      } else if (predicate(entry.name, full)) {
+        rmSync(full, { force: true });
+        removed += 1;
+      }
+    }
+    return removed;
+  };
+
+  // Directories safe to drop post-install:
+  //   __pycache__         - regenerated automatically on first import
+  //   tests/, test/       - unit tests, not imported at runtime
+  //   torch/include/      - C++ headers only used when building extensions
+  //   torch/test/         - torch's own test suite (~50 MB)
+  //   torch/testing/_internal - internal test helpers
+  //   *.dist-info/        - pip metadata (keeping top-level, pruning RECORD below)
+  const isBundledPackageDir = (_name, full) => {
+    const rel = full.slice(root.length).replace(/\\/g, "/");
+    if (/\/__pycache__(\/|$)/.test(rel)) return true;
+    if (/\/tests?(\/|$)/.test(rel)) return true;
+    // Torch-specific bloat that we definitely do not exercise from
+    // Irodori inference (graph compilation, onnxrt tests, C++ headers).
+    if (/\/torch\/include(\/|$)/.test(rel)) return true;
+    if (/\/torch\/testing\/_internal(\/|$)/.test(rel)) return true;
+    return false;
+  };
+  const dirsRemoved = removeDirsMatching(root, isBundledPackageDir);
+  log(`pruned ${dirsRemoved} bloat directories (__pycache__ / tests / torch headers)`);
+
+  // Files: debug symbols, pip cache metadata, stub files. The .pyi type
+  // stubs are only used by static checkers; runtime works without them.
+  const isBundledBloatFile = (name) => {
+    if (name.endsWith(".pdb")) return true;          // Windows PDB symbols
+    if (name.endsWith(".pyc")) return true;           // stale bytecode
+    if (name === "RECORD") return true;               // dist-info file hashes
+    if (name === "INSTALLER") return true;
+    if (name === "WHEEL") return true;
+    return false;
+  };
+  const filesRemoved = removeFilesMatching(root, isBundledBloatFile);
+  log(`pruned ${filesRemoved} bloat files (*.pdb / stale pyc / dist-info RECORD)`);
 }
 
 function dirSize(dir) {
