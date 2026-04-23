@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "studio.koehon.app",
   "build": {
-    "beforeDevCommand": "pnpm build:sidecar && pnpm dev",
+    "beforeDevCommand": "pnpm build:python && pnpm build:sidecar && pnpm dev",
     "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"

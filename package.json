@@ -6,10 +6,11 @@
   "scripts": {
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "build:sidecar:release": "node scripts/build-sidecar.mjs --release",
+    "build:python": "node scripts/ensure-python-runtime.mjs",
     "build:app": "vite build",
     "dev": "vite --host 127.0.0.1",
     "tauri:dev": "tauri dev",
-    "build": "pnpm build:sidecar:release && pnpm build:app",
+    "build": "pnpm build:python && pnpm build:sidecar:release && pnpm build:app",
     "build:check": "tauri build --debug --no-bundle",
     "build:check:release": "tauri build --no-bundle",
     "build:installer": "tauri build --config src-tauri/tauri.bundle.conf.json",
