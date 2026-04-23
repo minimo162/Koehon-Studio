@@ -224,17 +224,26 @@ async function runQueue(
       incrementCompleted();
       logGeneration("info", `${chunk.id} を生成しました。`);
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       updateChunk({
         ...chunk,
         status: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
         retryCount: chunk.retryCount + 1,
       });
       generationStateStore.update((state) => ({
         ...state,
         failedChunks: state.failedChunks + 1,
       }));
-      logGeneration("error", `${chunk.id} の生成に失敗しました。`);
+      logGeneration("error", `${chunk.id} の生成に失敗しました: ${reason}`);
+      if (isLikelyOomOrDeadSidecar(reason)) {
+        stopRequested = true;
+        logGeneration(
+          "error",
+          "TTS sidecar が停止した可能性があります。メモリ不足が原因の場合は、設定画面でCPUスレッド数を下げて再実行してください。",
+        );
+        break;
+      }
     }
   }
 
@@ -335,4 +344,23 @@ function canReuseChunkState(
   if (existing.type !== current.type) return false;
   if (existing.type === "text") return existing.text === current.text;
   return existing.pauseMs === current.pauseMs;
+}
+
+/**
+ * Decide whether a chunk failure looks like the sidecar itself is gone
+ * (memory allocation abort, connection refused, etc). When that's true we
+ * stop the queue so the user doesn't watch 100 more chunks fail against a
+ * dead process.
+ */
+function isLikelyOomOrDeadSidecar(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("memory allocation") ||
+    m.includes("failed to fetch") ||
+    m.includes("connection refused") ||
+    m.includes("ecconrefused") ||
+    m.includes("接続できません") ||
+    m.includes("sidecar") ||
+    m.includes("econn")
+  );
 }

@@ -27,11 +27,14 @@ use super::{
     VoiceInfo,
 };
 
-const REQUIRED_ONNX_KEYS: [&str; 5] = [
+// We load only the three ONNX graphs the current synthesize loop actually
+// calls. `local_decoder` and `local_cached_step` are part of the MOSS
+// release but unused by the `sample_mode = "fixed"` path — loading them
+// multiplied the resident weight set on low-memory hosts and caused OOM
+// aborts during inference.
+const REQUIRED_ONNX_KEYS: [&str; 3] = [
     "prefill",
     "decode_step",
-    "local_decoder",
-    "local_cached_step",
     "local_fixed_sampled_frame",
 ];
 

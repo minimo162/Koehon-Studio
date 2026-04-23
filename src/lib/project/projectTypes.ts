@@ -89,7 +89,7 @@ export const defaultProjectSettings: ProjectSettings = {
   modelDirectory: "",
   codecDirectory: "",
   outputDirectory: "",
-  cpuThreads: 4,
+  cpuThreads: 2,
   maxChunkChars: 450,
   pauseShortMs: 500,
   pauseMediumMs: 1000,
